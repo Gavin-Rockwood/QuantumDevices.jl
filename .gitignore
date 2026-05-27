@@ -1,0 +1,12 @@
+*/Manifest.toml
+dev/
+Manifest.toml
+.agent
+versions.js
+
+# Documentation build artifacts and local JS dependencies.
+docs/build/
+docs/node_modules/
+docs/docs/node_modules/
+docs/package-lock.json
+docs/docs/package-lock.json
