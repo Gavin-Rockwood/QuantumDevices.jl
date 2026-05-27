@@ -34,7 +34,6 @@ export default defineConfig({
   cleanUrls: true,
   outDir: 'REPLACE_ME_DOCUMENTER_VITEPRESS', // This is required for MarkdownVitepress to work correctly...
   head: [
-    ['link', { rel: 'icon', href: '/SuperconductingCircuits.jl/favicon.ico' }],
     ['script', {src: `${getBaseRepository(baseTemp.base)}versions.js`}],
     // ['script', {src: '/versions.js'], for custom domains, I guess if deploy_url is available.
     ['script', {src: `${baseTemp.base}siteinfo.js`}]
