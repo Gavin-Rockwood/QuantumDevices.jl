@@ -15,6 +15,10 @@ const PAGES = [
         ],
         "Dynamics" => [
             "Floquet Tools" => "user_guide/dynamics/floquet/floquet.md",
+            "Propagators" => "user_guide/dynamics/propagators/propagators.md",
+            "Drives" => "user_guide/dynamics/drives/drives.md",
+            "Envelopes" => "user_guide/dynamics/envelopes/envelopes.md",
+            "Resonance and Calibration" => "user_guide/dynamics/resonance_and_calibration/resonance_and_calibration.md",
         ],
     ],
     "Resources" => [

@@ -1,11 +1,12 @@
-#nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 # # Circuit Elements
-# The core component of the QuantumDevices.jl package is the circuit elements.
+#
+# Circuit elements are the local building blocks used to assemble a composite device Hamiltonian.
+# Each initialized component stores its local Hamiltonian, eigenstates, eigenenergies, Hilbert-space
+# dimension, parameters, and loss operators.
+
 using QuantumDevices
 using Logging #hide
 disable_logging(Logging.Warn); #hide
-#
-# 
 
 # ## Looking at all the Circuit Elements
 
@@ -29,6 +30,28 @@ N = 10
 name = "Transmon"
 transmon = init_transmon(EC, EJ, N, name=name, ng = ng, n_full=n_full);
 
+# ### Flux-Tunable Transmon
+#
+# `FluxTunableTransmon` is exported and registered as `"flux_tunable_transmon"` in
+# `init_components`. The current constructor signature is:
+#
+# ```julia
+# flux_tunable_transmon = init_flux_tunable_transmon(
+#     EC,
+#     EJ1,
+#     EJ2,
+#     N;
+#     PhiE0 = 0.0,
+#     name = "Flux-Tunable Transmon",
+#     n_full = 60,
+#     ng = 0,
+# )
+# ```
+#
+# At the time of writing, the implementation constructs a `FluxTunableTransmon` struct
+# with dynamic-flux fields, so this example is shown as reference code instead of being
+# executed by the docs build.
+
 # ### Fluxonium
 EJ = 8.9
 EC = 2.5
@@ -36,7 +59,7 @@ EL = 0.5
 flux = 0.33
 N = 10
 name = "Fluxonium"
-fluxonium = init_fluxonium(EC, EJ, EL, N; name=name, flux = 0.33);
+fluxonium = init_fluxonium(EC, EJ, EL, N; name=name, flux = flux);
 
 # ### SNAIL
 EJ = 90
@@ -50,18 +73,18 @@ name = "SNAIL"
 
 snail = init_snail(EC, EJ, EL, alpha, Phi_e, dim_full, N, name=name);
 
-md"""
-## Some Other Initialization Tools
-Also, a list of all the circuit elements can be initialized using the `init_components` dictionary.
-"""
-println(keys(init_components));
-md"""
-A circuit element can be initialized as:
-"""
+# ## Initialization Registry
+#
+# A string-keyed registry of component constructors is available as `init_components`.
+
+println(sort(collect(keys(init_components))));
+
+# A circuit element can be initialized directly:
+
 transmon = init_transmon(EC, EJ, N; name=name, ng = ng, n_full=n_full);
-md"""
-It is also possible to initialize using a dictionary of the parameters
-"""
+
+# It can also be initialized from a dictionary of parameters:
+
 transmon_params = Dict{Symbol, Any}();
 transmon_params[:name] = name;
 transmon_params[:EJ] = EJ;
@@ -71,3 +94,11 @@ transmon_params[:ng] = ng;
 transmon_params[:n_full] = n_full;
 
 transmon = init_components["transmon"](; transmon_params...);
+
+# ## Canonical Local Operators
+#
+# Each component exposes canonical local operators through `get_operator(component, operator_symbol)`.
+# These are the symbols used later by the circuit interaction DSL.
+
+println(sort(collect(keys(get_operators(transmon)))));
+println(sort(collect(keys(get_operators(resonator)))));

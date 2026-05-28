@@ -4,13 +4,14 @@ EditURL = "building_circuits.jl"
 
 # Building a Circuit
 
+In this example, we build a transmon-resonator circuit with a capacitive-style interaction
+and a couple of named operators for later dynamics workflows.
+
 ````julia
 using QuantumDevices;
 ````
 
-In this example, we will build a transmon+resonator circuit.
-## Building a Circuit
-### Initializing Circuit Elements
+## Initializing Circuit Elements
 
 We first initialize a transmon.
 
@@ -36,18 +37,19 @@ resonator_params[:N] = 10;
 resonator = init_components["resonator"](; resonator_params...);
 ````
 
-Here we have initialized two circuit elements: a transmon and a resonator.
+The order of components in this list determines the tensor-product order used for
+interactions and named operators.
 
 ````julia
 circuit_elements = [transmon, resonator];
 ````
 
-These are placed into a list called `circuit_elements` and the order of the elements in this list is important, as it will determine the order of the operators in the interactions and operators defined later.
+## Defining Interactions
 
-### Defining Interactions
-Interactions between elements are defined with typed operator expressions. The expression names the component and
-the canonical local operator to use. For example, `op(:transmon, :n)` is the transmon charge operator and
-`op(:resonator, :a_minus_adag_im)` is the resonator operator `1im * (a - a')`.
+Interactions are defined with typed operator expressions. The expression names the component
+and the canonical local operator to use. For example, `op(:transmon, :n)` is the transmon
+charge operator and `op(:resonator, :a_minus_adag_im)` is the resonator operator
+`1im * (a - a')`.
 
 ````julia
 interactions = [
@@ -59,9 +61,29 @@ interactions = [
 ````
 
 The component names in the operator expression must match the component `:name` parameters.
+The DSL supports sums, products, scalar multiplication, and adjoints. Use `coupling(g, expr; hc=true)`
+when the Hermitian conjugate should be added automatically. Use `interaction(expr)` when you want
+to write the full Hamiltonian term yourself.
 
-### Defining Extra Operators
-We can also define some composite operators that we can use later. These will be stored in the "circuit.ops" dictionary.
+````julia
+expr = op(:transmon, :n) * op(:resonator, :a);
+hermitian_term = coupling(0.01, expr; hc = true);
+explicit_term = interaction(0.01 * expr + (0.01 * expr)');
+````
+
+The two terms above represent the same Hermitian interaction.
+
+````julia
+typeof(hermitian_term), typeof(explicit_term)
+````
+
+````
+(QuantumDevices.Circuits.HamiltonianTerm{QuantumDevices.Circuits.SumOpExpr}, QuantumDevices.Circuits.HamiltonianTerm{QuantumDevices.Circuits.SumOpExpr})
+````
+
+## Defining Extra Operators
+
+Extra composite operators are stored in the `circuit.ops` dictionary.
 
 ````julia
 operators = Dict{String, Any}(
@@ -70,17 +92,23 @@ operators = Dict{String, Any}(
 );
 ````
 
-Here we have defined two operators: "a" which is just the resonator annihilation operator, and "nt" which is the transmon charge operator.
-Each is defined with the same typed operator expression DSL as interactions. Components that are not referenced are automatically
-treated as identities on their local Hilbert spaces.
+Each named operator uses the same typed operator expression DSL as interactions. Components
+that are not referenced are automatically treated as identities on their local Hilbert spaces.
+Local operator symbols are resolved with `get_operator`.
 
-### Putting it all together
+````julia
+get_operator(transmon, :n);
+get_operator(resonator, :a);
+````
+
+## Putting It All Together
 
 ````julia
 circuit = init_circuit(circuit_elements, interactions; operators_to_add = operators);
 ````
 
 ## Circuit Properties
+
 On its own, the circuit has several properties:
 
 ````julia
@@ -94,15 +122,16 @@ println(fieldnames(typeof(circuit)));
 
 | Property | Description |
 |----------|-------------|
-| `circuit.elements` | A list of the circuit elements in the order they were defined. |
-| `circuit.interactions` | A list of the interactions between the circuit elements. This is the exact list used to initialize the circuit|
-| `circuit.H_op`| The Hamiltonian of the circuit. |
-| `circuit.ops` | A dictionary of the operators defined in the circuit. This is useful when working with gates. |
-| `circuit.dressed_states` | The dressed states of the circuit. These are the eigenstates of the Hamiltonian and are indexed by their corresponding bare states. This indexing is done by adiabatically turning on the interactions and tracking the state evolution.|
-| `circuit.dressed_energies` | The corresponding energies of the dressed states. |
-| `circuit.dims` | The dimensions of the Hilbert spaces of the circuit elements. |
-| `circuit.order` | The order of the circuit elements in the circuit and is a list of the names of the circuit elements. This is the same as the order of the elements in the `circuit.elements` list. |
+| `circuit.components` | A list of the circuit components in the order they were defined. |
+| `circuit.interactions` | The interactions used to initialize the circuit. |
+| `circuit.H_op` | The circuit Hamiltonian. |
+| `circuit.ops` | A dictionary of named operators, useful for dynamics and gates. |
+| `circuit.dressed_states` | Dressed eigenstates indexed by their corresponding bare states. |
+| `circuit.dressed_energies` | The corresponding dressed energies. |
+| `circuit.dims` | The local Hilbert-space dimensions. |
+| `circuit.order` | The component names in the same order as `circuit.components`. |
 
 ---
 
 *This page was generated using [Literate.jl](https://github.com/fredrikekre/Literate.jl).*
+
