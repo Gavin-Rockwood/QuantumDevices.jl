@@ -14,7 +14,7 @@ function propagator(H::Union{qt.QuantumObject, qt.QobjEvo}, tf; ti = 0, dt = 0, 
     # end
     
     dim = size(H_evo, 1)
-    ψ0s = [qt.fock(dim, i-1, dims = H_evo.dims[1]) for i in 1:dim]
+    # ψ0s = [qt.fock(dim, i-1, dims = H_evo.dims[1]) for i in 1:dim]
 
     if dt == 0
         tlist = [ti, tf]
@@ -26,13 +26,13 @@ function propagator(H::Union{qt.QuantumObject, qt.QobjEvo}, tf; ti = 0, dt = 0, 
     end
 
 
-    sols = qt.sesolve(2*π*H_evo, ψ0s, tlist; kwargs...)
-    to_return = sols[1].states[end]*ψ0s[1]'
-    for i in 2:length(ψ0s)
-        to_return += sols[i].states[end]*ψ0s[i]'
-    end
+    # sols = qt.sesolve(2*π*H_evo, ψ0s, tlist; kwargs...)
+    # to_return = sols[1].states[end]*ψ0s[1]'
+    # for i in 2:length(ψ0s)
+    #     to_return += sols[i].states[end]*ψ0s[i]'
+    # end
 
-    return to_return
+    return qt.sesolve(2*pi*H_evo, qt.qeye_like(qt.QobjEvo(H_evo))(0.0), tlist; kwargs...).states[end]
 end
 
 struct Propagator{T}
