@@ -1,0 +1,1 @@
+_new_uuid() = uuid4()
