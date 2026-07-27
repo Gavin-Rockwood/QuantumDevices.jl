@@ -1,9 +1,37 @@
-struct QDDimension
-    dim::Union{Float64, Integer}
+struct Dimension
+    size::Tuple{Vararg{Union{Int, Float64}}}
 
-    function QDDimension(x::Union{Float64,Integer})
-        valid = (x isa Integer && x > 0) || (x isa Float64 && isequal(x, Inf))
-        valid || throw(ArgumentError("dimension must be a positive integer or Inf"))
-        return new(x)
+    function Dimension(values::Tuple)
+        size = map(values) do value
+            if value isa Integer && !(value isa Bool) && value > 0
+                Int(value)
+            elseif value isa AbstractFloat && isinf(value) && value > 0
+                Inf
+            else
+                throw(ArgumentError("each dimension must be a positive integer or Inf; got $value",))
+            end
+        end
+        new(Tuple(size))
     end
 end
+
+function Dimension(val :: Real)
+    Dimension((val,))
+end
+
+function Dimension(X::Dimension...)
+    sizes = [x.size for x in X]
+    Dimension(Tuple(Iterators.flatten(sizes)))
+end
+
+
+Base.iterate(dimension::Dimension, state...) =
+    iterate(dimension.size, state...)
+
+Base.length(dimension::Dimension) = length(dimension.size)
+Base.eltype(::Type{Dimension}) = Union{Int, Float64}
+
+Base.getindex(dimension::Dimension, index...) =
+    getindex(dimension.size, index...)
+
+Base.IteratorSize(::Type{Dimension}) = Base.HasLength()

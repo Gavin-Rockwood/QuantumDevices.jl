@@ -32,8 +32,8 @@ function Base.show(io::IO, ::MIME"text/plain", parameter::DeviceParameter)
     print(io, "  Metadata: ", _display_metadata(io, parameter.metadata))
 end
 
-function Base.show(io::IO, dimension::QDDimension)
-    print(io, "QDDimension(", dimension.dim, ")")
+function Base.show(io::IO, dimension::Dimension)
+    print(io, "Dimension(", dimension.size, ")")
 end
 
-Base.show(io::IO, ::MIME"text/plain", dimension::QDDimension) = show(io, dimension)
+Base.show(io::IO, ::MIME"text/plain", dimension::Dimension) = show(io, dimension)

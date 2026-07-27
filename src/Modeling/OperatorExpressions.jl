@@ -9,7 +9,7 @@ struct OperatorRef
 end
 
 abstract type ExprRole end
-struct ScalarRole <: ExprRole end
+struct ScalarRole{Data} <: ExprRole end
 struct OperatorRole <: ExprRole end
 
 """
@@ -23,18 +23,20 @@ struct Expr{R<:ExprRole}
     args::Tuple
 end
 
-const ScalarExpr = Expr{ScalarRole}
+const ScalarExpr = Expr{<:ScalarRole}
 const OperatorExpr = Expr{OperatorRole}
 
-constant(value) = ScalarExpr(:const, (value,))
+ScalarExpr(head::Symbol, args::Tuple) = Expr{ScalarRole{Any}}(head, args)
+
+constant(value::Number) = Expr{ScalarRole{typeof(value)}}(:const, (value,))
 
 """
-    param(path)
+    param(parameter)
 
-Create a scalar parameter reference for a symbol, tuple path, string path, or
-`DeviceParameter`.
+Create a scalar parameter leaf that carries a `DeviceParameter` directly.
 """
-param(path) = ScalarExpr(:param, (_expr_path(path),))
+param(parameter::DeviceParameter) =
+    Expr{ScalarRole{DeviceParameter}}(:param, (parameter,))
 
 """
     op(name)
@@ -53,19 +55,11 @@ function op(component::Symbol, path::Symbol...)
     )
 end
 
-_expr_path(path::Symbol) = (path,)
-_expr_path(path::Tuple{Vararg{Symbol}}) = path
-_expr_path(path::AbstractVector{Symbol}) = Tuple(path)
-_expr_path(path::AbstractString) = Tuple(Symbol.(split(path, ".")))
-_expr_path(path) = hasproperty(path, :path) && hasproperty(path, :default) ?
-    path :
-    (isdefined(@__MODULE__, :_param_path) ? _param_path(path) : path)
-
 _scalar(expr::ScalarExpr) = expr
 _scalar(value::Number) = constant(value)
-_scalar(value) = hasproperty(value, :path) && hasproperty(value, :default) ? param(value) : value
+_scalar(value::DeviceParameter) = param(value)
 
-import Base: +, -, *, /, ^, adjoint, cos, sin
+import Base: +, -, *, /, ^, adjoint, conj, cos, sin
 
 function +(a::ScalarExpr, b::Union{ScalarExpr,Number})
     return ScalarExpr(:+, (_flatten(:+, a)..., _flatten(:+, _scalar(b))...))
@@ -98,6 +92,7 @@ end
 ^(a::ScalarExpr, exponent::Number) = ScalarExpr(:^, (a, exponent))
 cos(a::ScalarExpr) = ScalarExpr(:cos, (a,))
 sin(a::ScalarExpr) = ScalarExpr(:sin, (a,))
+conj(a::ScalarExpr) = ScalarExpr(:conj, (a,))
 
 function +(a::OperatorExpr, b::OperatorExpr)
     return OperatorExpr(:+, (_flatten(:+, a)..., _flatten(:+, b)...))
@@ -129,81 +124,148 @@ adjoint(a::OperatorExpr) = OperatorExpr(:adjoint, (a,))
 _flatten(head::Symbol, expr::Expr) = expr.head == head ? expr.args : (expr,)
 
 """
-    _participating_components(expr)
+    get_params(expr)
 
-Return component IDs explicitly referenced by component-rooted operator paths
-inside `expr`.
+Return the unique parameter references in a scalar or operator expression, in
+first-occurrence order.
 """
-function _participating_components(expr::OperatorExpr)
-    components = Set{Symbol}()
-    function collect!(node::OperatorExpr)
-        if node.head == :op
-            path = node.args[1].path
-            length(path) >= 2 && path[1] == :components &&
-                push!(components, path[2])
-            return
-        end
-        for arg in node.args
-            arg isa OperatorExpr && collect!(arg)
-        end
-    end
-    collect!(expr)
-    return components
+function get_params(expr::Expr)
+    parameters = DeviceParameter[]
+    _get_params!(parameters, expr)
+    return parameters
 end
 
-_participating_components(::ScalarExpr) = Set{Symbol}()
-
-"""
-    absolute_path(expr, root)
-
-Rewrite relative `param` and `op` references so they are rooted at `root`.
-"""
-function absolute_path(expr::ScalarExpr, root::Tuple{Vararg{Symbol}})
-    if expr.head == :param
-        return ScalarExpr(:param, (_absolute_param_path(expr.args[1], root),))
-    end
-    return ScalarExpr(expr.head, Tuple(_absolute_arg(arg, root) for arg in expr.args))
+function _get_params!(parameters, expr::Expr)
+    foreach(arg -> arg isa Expr && _get_params!(parameters, arg), expr.args)
+    return parameters
 end
 
-function absolute_path(expr::OperatorExpr, root::Tuple{Vararg{Symbol}})
+function _get_params!(parameters, expr::Expr{ScalarRole{DeviceParameter}})
+    parameter = only(expr.args)
+    any(existing -> existing === parameter, parameters) || push!(parameters, parameter)
+    return parameters
+end
+
+_get_params!(parameters, ::Expr{ScalarRole{Data}}) where {Data<:Number} = parameters
+
+"""Evaluate a scalar expression to either a number or a function of time."""
+function _numerical_scalar(expr::ScalarExpr, parameter_lookup)
+    expr.head == :const && return expr.args[1]
+    expr.head == :param && return parameter_lookup(expr.args[1])
+    expr.head == :neg && return _time_unary(-, _numerical_scalar(expr.args[1], parameter_lookup))
+    expr.head == :conj && return _time_unary(conj, _numerical_scalar(expr.args[1], parameter_lookup))
+    expr.head == :cos && return _time_unary(cos, _numerical_scalar(expr.args[1], parameter_lookup))
+    expr.head == :sin && return _time_unary(sin, _numerical_scalar(expr.args[1], parameter_lookup))
+    if expr.head in (:+, :*)
+        operation = expr.head == :+ ? (+) : (*)
+        value = _numerical_scalar(expr.args[1], parameter_lookup)
+        for arg in expr.args[2:end]
+            value = _time_binary(operation, value, _numerical_scalar(arg, parameter_lookup))
+        end
+        return value
+    elseif expr.head == :/
+        return _time_binary(/,
+            _numerical_scalar(expr.args[1], parameter_lookup),
+            _numerical_scalar(expr.args[2], parameter_lookup))
+    elseif expr.head == :^
+        return _time_unary(value -> value ^ expr.args[2],
+            _numerical_scalar(expr.args[1], parameter_lookup))
+    end
+    error("Unknown scalar expression head $(expr.head).")
+end
+
+_time_unary(operation, value::Function) = time -> operation(value(time))
+_time_unary(operation, value) = operation(value)
+
+function _time_binary(operation, left, right)
+    left isa Function || right isa Function || return operation(left, right)
+    time -> operation(_at(left, time), _at(right, time))
+end
+
+"""Compile an operator expression using fixed operators and scalar coefficients."""
+function _numerical_expression(expr::OperatorExpr, operator_lookup, parameter_lookup)
+    terms = _operator_terms(expr, operator_lookup, parameter_lookup)
+    static = nothing
+    dynamic = Tuple{Any,Function}[]
+    for (coefficient, operator) in terms
+        if coefficient isa Function
+            operator isa QuantumObject ||
+                error("Time-dependent expressions require QuantumObject operators.")
+            push!(dynamic, (operator, (p, t) -> coefficient(t)))
+        else
+            term = coefficient * operator
+            static = static === nothing ? term : static + term
+        end
+    end
+    isempty(dynamic) && return static
+    evolution = QobjEvo(Tuple(dynamic))
+    static === nothing ? evolution : static + evolution
+end
+
+function _operator_terms(expr::OperatorExpr, operator_lookup, parameter_lookup)
     if expr.head == :op
-        return OperatorExpr(:op, (OperatorRef(_absolute_operator_path(expr.args[1].path, root)),))
+        return [(1, operator_lookup(expr.args[1].path))]
+    elseif expr.head == :+
+        return reduce(vcat,
+            (_operator_terms(arg, operator_lookup, parameter_lookup) for arg in expr.args))
+    elseif expr.head == :*
+        terms = [(1, nothing)]
+        for arg in expr.args
+            if arg isa ScalarExpr
+                value = _numerical_scalar(arg, parameter_lookup)
+                terms = [(_time_binary(*, coefficient, value), operator)
+                    for (coefficient, operator) in terms]
+            elseif arg isa Number
+                terms = [(coefficient * arg, operator) for (coefficient, operator) in terms]
+            else
+                terms = _multiply_terms(
+                    terms,
+                    _operator_terms(arg, operator_lookup, parameter_lookup),
+                )
+            end
+        end
+        return terms
+    elseif expr.head == :^
+        exponent = expr.args[2]
+        exponent isa Integer && exponent >= 1 ||
+            error("Operator expression powers must be positive integers.")
+        base = _operator_terms(expr.args[1], operator_lookup, parameter_lookup)
+        terms = base
+        for _ in 2:exponent
+            terms = _multiply_terms(terms, base)
+        end
+        return terms
+    elseif expr.head == :adjoint
+        return [(_time_unary(conj, coefficient), adjoint(operator))
+            for (coefficient, operator) in
+                _operator_terms(expr.args[1], operator_lookup, parameter_lookup)]
     end
-    return OperatorExpr(expr.head, Tuple(_absolute_arg(arg, root) for arg in expr.args))
+    error("Unknown operator expression head $(expr.head).")
 end
 
-absolute_path(expr::Expr, component) =
-    absolute_path(expr, (:components, component.id))
-
-_absolute_arg(arg::Expr, root::Tuple{Vararg{Symbol}}) = absolute_path(arg, root)
-_absolute_arg(arg, ::Tuple{Vararg{Symbol}}) = arg
-
-function _absolute_operator_path(path::Tuple{Vararg{Symbol}}, root::Tuple{Vararg{Symbol}})
-    if length(path) >= 1 && path[1] == :components
-        return path
-    elseif length(path) >= 1 && path[1] == :operators
-        return (root..., path...)
-    else
-        return (root..., :operators, path...)
-    end
+function _multiply_terms(left_terms, right_terms)
+    [(
+        _time_binary(*, left_coefficient, right_coefficient),
+        left_operator === nothing ? right_operator :
+            right_operator === nothing ? left_operator : left_operator * right_operator,
+    ) for (left_coefficient, left_operator) in left_terms
+      for (right_coefficient, right_operator) in right_terms]
 end
-
-function _absolute_param_path(path::Tuple{Vararg{Symbol}}, root::Tuple{Vararg{Symbol}})
-    if length(path) >= 1 && path[1] == :components
-        return path
-    elseif length(path) >= 1 && path[1] == :params
-        return (root..., path...)
-    else
-        return (root..., :params, path...)
-    end
-end
-
-_absolute_param_path(path, root::Tuple{Vararg{Symbol}}) =
-    _absolute_param_path(_param_parts(path), root)
 
 _param_parts(path::Tuple{Vararg{Symbol}}) = path
 _param_parts(path::Symbol) = (path,)
 _param_parts(path) = hasproperty(path, :path) ? _param_parts(getproperty(path, :path)) : path.parts
+
+"""Return a catalog-relative path, accepting canonical and expression paths."""
+function _canonical_reference(path, catalog::Symbol)
+    parts = _param_parts(path)
+    if length(parts) >= 4 && parts[1] == :components && parts[3] == catalog
+        return (parts[2], parts[4:end]...)
+    elseif length(parts) >= 2 && parts[1] == catalog
+        return parts[2:end]
+    end
+    return parts
+end
 
 if isdefined(@__MODULE__, :DeviceParameter)
     import Base: *

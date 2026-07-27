@@ -61,6 +61,16 @@ struct DeviceParameter
     default::Any
     description::String
     metadata::Dict{Symbol, Any}
+
+    function DeviceParameter(path::ParamPath, domain::Domain, fixed::Bool,
+            required::Bool, default, description::String,
+            metadata::Dict{Symbol,Any})
+        default isa Function && fixed &&
+            error("Function-valued parameter $(join(path.parts, "/")) must have fixed=false.")
+        default isa Function || default in domain ||
+            error("Default $default is outside the domain for $(join(path.parts, "/")).")
+        new(path, domain, fixed, required, default, description, metadata)
+    end
 end
 
 function DeviceParameter(
@@ -78,7 +88,26 @@ function DeviceParameter(
         fixed,
         required,
         default,
-        description,
+        String(description),
         _metadata_dict(metadata)
     )
 end
+
+function _parameter_value(parameter::DeviceParameter, value = parameter.default)
+    if value isa Function
+        parameter.fixed &&
+            error("Function-valued parameter $(join(parameter.path.parts, "/")) must have fixed=false.")
+        return t -> begin
+            result = value(t)
+            result in parameter.domain ||
+                error("Value $result at t=$t is outside the domain for $(join(parameter.path.parts, "/")).")
+            result
+        end
+    end
+    value in parameter.domain ||
+        error("Value $value is outside the domain for $(join(parameter.path.parts, "/")).")
+    value
+end
+
+_at(value::Function, time) = value(time)
+_at(value, time) = value

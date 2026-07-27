@@ -1,6 +1,6 @@
 struct QubitSpec <: AbstractComponentSpec
     frequency::DeviceParameter
-    dimension::DeviceParameter
+    dimension::Dimension
     operators
     hamiltonian
 end
@@ -10,10 +10,10 @@ function QubitSpec(val;
     fixed_frequency = false,
     description = "Qubit Frequency",
     metadata = Dict{Symbol, Any}(),
-    hamiltonian = param(:frequency)*op(:z) / 2,
+    hamiltonian = missing,
     extra_terms = nothing
     )
-    frequency = DeviceParameter(
+    frequency_parameter = DeviceParameter(
         ParamPath(:frequency),
         domain,
         fixed_frequency,
@@ -23,15 +23,7 @@ function QubitSpec(val;
         _metadata_dict(metadata)
     )
 
-    dimension = DeviceParameter(
-        ParamPath(:dimension),
-        integerrange(2,2),
-        false,
-        true,
-        2,
-        "Qubit Dimension",
-        _metadata_dict(Dict{Symbol, Any}())
-    )
+    dimension = Dimension(2)
     operators = (
         identity = (; kwargs...) -> qeye(2),
         x = (; kwargs...) -> sigmax(),
@@ -40,6 +32,8 @@ function QubitSpec(val;
         p = (; kwargs...) -> sigmap(),
         m = (; kwargs...) -> sigmam(),
     )
-    hamiltonian = _component_hamiltonian(hamiltonian, extra_terms)
-    return QubitSpec(frequency, dimension, operators, hamiltonian)
+    default_hamiltonian = param(frequency_parameter) * op(:z) / 2
+    resolved_hamiltonian = hamiltonian === missing ? default_hamiltonian : hamiltonian
+    resolved_hamiltonian = _component_hamiltonian(resolved_hamiltonian, extra_terms)
+    return QubitSpec(frequency_parameter, dimension, operators, resolved_hamiltonian)
 end

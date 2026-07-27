@@ -6,12 +6,11 @@ catalogs, and optionally a symbolic Hamiltonian.
 """
 abstract type AbstractComponentSpec end
 
-"""
-    available_operators(spec)
-
-Return the operator names exposed by a component specification.
-"""
-available_operators(spec::AbstractComponentSpec) = Set(collect(keys(spec.operators)))
+function _component_hamiltonian(hamiltonian, extra_terms)
+    hamiltonian === nothing && return extra_terms
+    extra_terms === nothing && return hamiltonian
+    hamiltonian + extra_terms
+end
 
 """
     numerical_operator(spec, operator; kwargs...)
@@ -25,7 +24,6 @@ function numerical_operator(spec::AbstractComponentSpec, operator, args...; kwar
     return spec.operators[operator](args...; kwargs...)
 end
 
-include("genarics.jl")
 include("component.jl")
 include("repository/qubit.jl")
 include("repository/generic.jl")

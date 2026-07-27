@@ -9,50 +9,41 @@ function _display_parameter_summary(io::IO, parameter::DeviceParameter)
 end
 
 function _display_operator_name(operator)
-    return operator isa Symbol ? string(operator) : _display_path(operator)
+    return operator isa Symbol ? string(operator) : _display_operator_path(operator)
 end
 
 function _display_spec_line(io::IO, spec)
-    parameters = _spec_parameters(spec)
-    operators = try
-        available_operators(spec)
-    catch
-        Any[]
-    end
+    component_parameters = parameters(spec)
+    component_operators = operators(spec)
     print(
         io,
         nameof(typeof(spec)),
         "(",
-        length(parameters),
+        length(component_parameters),
         " ",
-        _display_plural(length(parameters), "parameter"),
+        _display_plural(length(component_parameters), "parameter"),
         ", ",
-        length(operators),
+        length(component_operators),
         " ",
-        _display_plural(length(operators), "operator"),
+        _display_plural(length(component_operators), "operator"),
         ")",
     )
 end
 
 function _display_spec_plain(io::IO, spec)
     println(io, nameof(typeof(spec)))
-    parameters = _spec_parameters(spec)
-    _display_named_lines(io, "Parameters:", keys(parameters)) do output, key
-        _display_parameter_summary(output, parameters[key])
+    println(io, "Dimension: ", spec.dimension.size)
+    component_parameters = parameters(spec)
+    _display_named_lines(io, "Parameters:", keys(component_parameters)) do output, key
+        _display_parameter_summary(output, component_parameters[key])
     end
-    operators = try
-        available_operators(spec)
-    catch
-        Any[]
-    end
-    _display_named_lines(io, "Operators:", operators) do output, operator
+    _display_named_lines(io, "Operators:", operators(spec)) do output, operator
         print(output, _display_operator_name(operator))
     end
-    hamiltonian = default_hamiltonian(spec)
-    hamiltonian !== nothing && print(io, "Hamiltonian: ", _expression_text(io, hamiltonian))
+    print(io, "Hamiltonian: ", _expression_text(io, hamiltonian(spec)))
 end
 
-for SpecType in (:QubitSpec, :TransmonSpec, :FluxTunableTransmonSpec, :ResonatorSpec, :FrozenModelSpec)
+for SpecType in (:QubitSpec, :TransmonSpec, :FluxTunableTransmonSpec, :ResonatorSpec)
     @eval begin
         Base.show(io::IO, spec::$SpecType) = _display_spec_line(io, spec)
         Base.show(io::IO, ::MIME"text/plain", spec::$SpecType) = _display_spec_plain(io, spec)
@@ -65,48 +56,44 @@ end
 
 function Base.show(io::IO, ::MIME"text/plain", spec::GenericSpec)
     println(io, "GenericSpec")
-    println(io, "  Dimension: ", spec.dimension.default)
+    println(io, "  Dimension: ", spec.dimension.size)
     print(io, "  Spectrum: ")
-    values = [parameter.default for parameter in spec.spectrum]
+    values = spec.spectrum
     shown, omitted = _display_items(io, values)
     print(io, join(shown, ", "))
     omitted > 0 && print(io, ", ", _display_symbol(io, "…", "..."), " ", omitted, " more")
+    spec.source === nothing || print(io, "\n  Source: ", nameof(typeof(spec.source)))
 end
 
 function Base.show(io::IO, component::Component)
     print(
         io,
         "Component(:",
-        component.id,
+        component.name,
         ", ",
         nameof(typeof(component.spec)),
         "; ",
-        length(component.parameters),
+        length(parameters(component)),
         " ",
-        _display_plural(length(component.parameters), "parameter"),
+        _display_plural(length(parameters(component)), "parameter"),
         ", ",
-        length(component.operators),
+        length(operators(component)),
         " ",
-        _display_plural(length(component.operators), "operator"),
+        _display_plural(length(operators(component)), "operator"),
         ")",
     )
 end
 
 function Base.show(io::IO, ::MIME"text/plain", component::Component)
-    println(io, "Component :", component.id)
-    println(io, "  Name: ", component.name)
+    println(io, "Component :", component.name)
     println(io, "  Spec: ", nameof(typeof(component.spec)))
-    _display_named_lines(io, "  Parameters:", keys(component.parameters)) do output, key
-        _display_parameter_summary(output, component.parameters[key])
+    println(io, "  Dimension: ", component.spec.dimension.size)
+    component_parameters = parameters(component)
+    _display_named_lines(io, "  Parameters:", keys(component_parameters)) do output, key
+        _display_parameter_summary(output, component_parameters[key])
     end
-    _display_named_lines(io, "  Operators:", component.operators) do output, operator
+    _display_named_lines(io, "  Operators:", operators(component)) do output, operator
         print(output, _display_operator_name(operator))
     end
-    print(io, "  Hamiltonian: ")
-    if component.hamiltonian === nothing
-        print(io, "none")
-    else
-        print(io, _expression_text(io, component.hamiltonian))
-    end
-    print(io, "\n  Metadata: ", _display_metadata(io, component.metadata))
+    print(io, "  Hamiltonian: ", _expression_text(io, hamiltonian(component)))
 end

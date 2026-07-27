@@ -9,7 +9,7 @@ _display_sorted(values) = sort!(collect(values); by = string)
 
 function _display_path(path)
     parts = path isa ParamPath ? path.parts : Tuple(path)
-    return join(string.(parts), ".")
+    return join(string.(parts), "/")
 end
 
 function _display_operator_path(path)

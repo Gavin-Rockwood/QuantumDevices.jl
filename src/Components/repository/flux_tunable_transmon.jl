@@ -10,7 +10,7 @@ struct FluxTunableTransmonSpec <: AbstractComponentSpec
     EJ2::DeviceParameter
     flux::DeviceParameter
     ng::DeviceParameter
-    dimension::DeviceParameter
+    dimension::Dimension
     operators
     hamiltonian::OperatorExpr
 end
@@ -22,25 +22,14 @@ function FluxTunableTransmonSpec(
         flux::Real = 0,
         ng::Real = 0,
         metadata = Dict{Symbol,Any}(),
-        hamiltonian = 4 * param(:EC) * (op(:n) - param(:ng) * op(:identity))^2 -
-                      (
-                          ((param(:EJ1) + param(:EJ2)) * cos(pi * param(:flux)))^2 +
-                          ((param(:EJ1) - param(:EJ2)) * sin(pi * param(:flux)))^2
-                      )^(1 / 2) * op(:tunneling) / 2,
+        hamiltonian = missing,
         extra_terms = nothing)
     EC > 0 || error("FluxTunableTransmonSpec EC must be positive.")
     EJ1 > 0 || error("FluxTunableTransmonSpec EJ1 must be positive.")
     EJ2 > 0 || error("FluxTunableTransmonSpec EJ2 must be positive.")
 
     parameter_metadata = _metadata_dict(metadata)
-    dimension_parameter = DeviceParameter(
-        :dimension;
-        domain = anydomain(),
-        fixed = true,
-        default = Inf,
-        description = "Maximum charge-basis dimension.",
-        metadata = parameter_metadata,
-    )
+    dimension = Dimension(Inf)
     operators = (
         identity = (; dimension, kwargs...) ->
             qeye(_transmon_dimension(dimension)),
@@ -51,46 +40,58 @@ function FluxTunableTransmonSpec(
         tunneling = (; dimension, kwargs...) ->
             tunneling(_transmon_dimension(dimension)),
     )
-    return FluxTunableTransmonSpec(
-        DeviceParameter(
+    EC_parameter = DeviceParameter(
             :EC;
             domain = positivedomain(),
             default = Float64(EC),
             description = "Charging energy in GHz.",
             metadata = parameter_metadata,
-        ),
-        DeviceParameter(
+        )
+    EJ1_parameter = DeviceParameter(
             :EJ1;
             domain = positivedomain(),
             default = Float64(EJ1),
             description = "First junction Josephson energy in GHz.",
             metadata = parameter_metadata,
-        ),
-        DeviceParameter(
+        )
+    EJ2_parameter = DeviceParameter(
             :EJ2;
             domain = positivedomain(),
             default = Float64(EJ2),
             description = "Second junction Josephson energy in GHz.",
             metadata = parameter_metadata,
-        ),
-        DeviceParameter(
+        )
+    flux_parameter = DeviceParameter(
             :flux;
             domain = realdomain(),
             fixed = false,
             default = Float64(flux),
             description = "External flux in flux-quanta units.",
             metadata = parameter_metadata,
-        ),
-        DeviceParameter(
+        )
+    ng_parameter = DeviceParameter(
             :ng;
             domain = realdomain(),
             default = Float64(ng),
             description = "Offset charge.",
             metadata = parameter_metadata,
-        ),
-        dimension_parameter,
+        )
+    default_hamiltonian =
+        4 * param(EC_parameter) * (op(:n) - param(ng_parameter) * op(:identity))^2 -
+        (
+            ((param(EJ1_parameter) + param(EJ2_parameter)) * cos(pi * param(flux_parameter)))^2 +
+            ((param(EJ1_parameter) - param(EJ2_parameter)) * sin(pi * param(flux_parameter)))^2
+        )^(1 / 2) * op(:tunneling) / 2
+    resolved_hamiltonian = hamiltonian === missing ? default_hamiltonian : hamiltonian
+    return FluxTunableTransmonSpec(
+        EC_parameter,
+        EJ1_parameter,
+        EJ2_parameter,
+        flux_parameter,
+        ng_parameter,
+        dimension,
         operators,
-        _component_hamiltonian(hamiltonian, extra_terms),
+        _component_hamiltonian(resolved_hamiltonian, extra_terms),
     )
 end
 
