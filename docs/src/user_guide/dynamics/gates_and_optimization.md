@@ -12,8 +12,10 @@ gate = GateSpec(
     duration = 10.0,
     parameters = (amplitude = 0.1, sigma = 2.0),
     controls = Dict(
-        drive_path => ((p, t) ->
-            p.amplitude * gaussian(t, p.duration, p.sigma)),
+        drive_path => CarrierControl(
+            (p, t) -> p.amplitude * gaussian(t, p.duration, p.sigma);
+            frequency = 4.8,
+        ),
     ),
 )
 
@@ -32,6 +34,12 @@ Parameterized controls receive `p.duration` and the gate's named scalar
 parameters. Existing `t -> value` controls remain supported. `with_parameters`
 reconstructs a gate without mutating the original.
 
+`CarrierControl` keeps a slow analytic envelope separate from its fixed
+laboratory-frame carrier. With frequencies in GHz and time in ns, its resolved
+coefficient is `envelope * cos(2π * frequency * t + phase)`. Classical
+propagation sees the complete waveform, while the Piccolo extension optimizes
+the slow envelope through a time-modulated drive.
+
 ## Gate optimization
 
 The common workflow optimizes named recipe parameters directly:
@@ -42,6 +50,7 @@ result = optimize(
     ComplexF64[0 1; 1 0],
     :amplitude => (0.0, 0.2);
     states = [(0,), (1,)],
+    frame_frequencies = (q = 4.8,),
     iterations = 80,
 )
 ```
@@ -58,7 +67,9 @@ result. The input gate is never mutated.
 
 `StateTransferObjective(initial, target)` uses final-state overlap. States and
 logical subspaces may be specified with the ordered state labels owned by the
-model.
+model. For lab-frame unitary propagation, `frame_frequencies` applies the known
+idle-frame virtual-Z correction before process fidelity is scored. Its named
+keys must match the model subsystem order.
 
 ### Low-level problem API
 
@@ -117,7 +128,13 @@ Add `:duration => (lower, upper)` to run Piccolo's minimum-time wrapper after
 the smooth-pulse solve. `PiccoloOptimizationProblem` and `optimize_gate` remain
 available as the low-level interface.
 
+Carrier-modulated Piccolo controls require zero model defaults and linear
+control terms. Minimum-time optimization is rejected for frame-corrected
+unitary targets because their corresponding lab-frame target changes with gate
+duration.
+
 See the
 [physical gate optimization notebook](https://github.com/Gavin-Rockwood/QuantumDevices.jl/blob/main/demo/GateOptimizationExamples.ipynb)
-for Gaussian X-gate calibration, a cos²-ramped iSWAP, independent
-QuantumToolbox verification, and optional Piccolo synthesis.
+for a complete device-first workflow: one physical lab-frame model, Gaussian
+X-gate and cos²-ramped iSWAP calibration, gate registration, independent
+QuantumToolbox verification, and optional carrier-aware Piccolo synthesis.
