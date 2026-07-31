@@ -3,7 +3,7 @@ dev/
 Manifest.toml
 .agent
 versions.js
-
+.DS_Store
 # Documentation build artifacts and local JS dependencies.
 docs/build/
 docs/node_modules/
