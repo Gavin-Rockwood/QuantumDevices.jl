@@ -5,6 +5,18 @@ import QuantumDevices as OE
 @testset "operator expressions" begin
     local_path = OE.ParamPath(:frequency)
     @test local_path == OE.ParamPath(:frequency)
+    string_path = OE.ParamPath("components/qubit1/frequency")
+    @test string_path == OE.ParamPath(:components, :qubit1, :frequency)
+    @test OE.ParamPath("frequency") == local_path
+    @test OE.ParamPath("components.qubit1.frequency") == string_path
+    @test OE.ParamPath("components/qubit1.frequency") == string_path
+    @test OE.ParamPath(sprint(show, string_path)) == string_path
+    @test OE.DeviceParameter("components/qubit1/frequency"; default = 1.0).path ==
+        string_path
+    for path in ("", "/frequency", "frequency/", "qubit//frequency",
+            ".frequency", "frequency.", "qubit..frequency")
+        @test_throws ArgumentError OE.ParamPath(path)
+    end
 
     sx = OE.op(:q1, :sx)
     sy = OE.op(:q1, :sy)
@@ -17,6 +29,16 @@ import QuantumDevices as OE
 
     frequency = OE.DeviceParameter(:frequency; default = 1.0)
     amplitude = OE.DeviceParameter(:amplitude; default = 2.0)
+    positive = OE.DeviceParameter(:positive;
+        domain = OE.positivedomain(), default = 1.0)
+    @test (positive.default = 2.0) == 2.0
+    @test positive.default == 2.0
+    @test_throws Exception positive.default = 0.0
+    @test positive.default == 2.0
+    @test_throws Exception positive.path = OE.ParamPath(:changed)
+    @test_throws Exception frequency.default = t -> t
+    @test frequency.default == 1.0
+
     coeff = OE.param(frequency) + 2 * OE.param(amplitude) - 3
     @test coeff isa OE.ScalarExpr
     @test OE.param(frequency) isa OE.Expr{OE.ScalarRole{OE.DeviceParameter}}

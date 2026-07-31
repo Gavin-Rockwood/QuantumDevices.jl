@@ -2,6 +2,8 @@ module QuantumDevices
     using LinearAlgebra
     using TOML
     using QuantumToolbox 
+    import Optim
+    import Optim: optimize
 
     include("helpers/metadata.jl")
     include("helpers/dimensions.jl")
@@ -11,6 +13,8 @@ module QuantumDevices
     include("Components/Components.jl")
     include("Modeling/Models.jl")
     include("Modeling/Gates.jl")
+    include("Modeling/GateOptimization.jl")
+    include("Modeling/ControlDecomposition.jl")
     include("Core/QuantumDevice.jl")
     include("displaying/Displaying.jl")
     export Component
@@ -34,8 +38,19 @@ module QuantumDevices
     export model
     export component
     export GateSpec
+    export CarrierControl
+    export with_parameters
+    export GateVariable
+    export UnitaryObjective
+    export StateTransferObjective
+    export EnvelopeOptimizationProblem
+    export GateOptimizationResult
+    export PiccoloOptimizationProblem
+    export optimize_gate
+    export optimize
     export QuantumDevice
     export register!
+    export update!
     export modelspec
     export StateTrackingResult
     export greedy_assignment

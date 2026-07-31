@@ -27,7 +27,7 @@ function Base.show(io::IO, ::MIME"text/plain", spec::ModelSpec)
     println(io, "  Parameters:")
     for path in sort!(collect(keys(spec.parameters)); by = path -> path.parts)
         print(io, "    ", join(path.parts, "/"), " = ")
-        _display_value(io, get(spec.defaults, path.parts, spec.parameters[path].default))
+        _display_value(io, spec.defaults[path.parts])
         println(io)
     end
     println(io, "  Interactions:")
@@ -45,7 +45,14 @@ end
 
 function Base.show(io::IO, ::MIME"text/plain", model::QuantumDeviceModel)
     println(io, "QuantumDeviceModel :", model.spec.name)
-    println(io, "  Hamiltonian: ", join(size(model.hamiltonian), "×"))
+    free = parameters(model)
+    parameterized = model.hamiltonian isa QuantumObjectEvolution
+    println(io, "  Hamiltonian: ", join(size(model.hamiltonian), "×"),
+        parameterized ? " (QobjEvo)" : "")
+    println(io, "  Free parameters: ",
+        isempty(free) ? "none" :
+        join((join(path.parts, "/") for path in sort!(collect(keys(free));
+            by = path -> path.parts)), ", "))
     println(io, "  Operators: ", length(model.operators))
     println(io, "  States: ", length(model.states))
     println(io, "  Energies: ", length(model.energies))

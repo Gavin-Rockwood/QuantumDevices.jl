@@ -51,13 +51,13 @@ function ModelSpec(
     all(interaction -> interaction isa OperatorExpr, interactions) ||
         error("Interactions must be operator expressions.")
     model_parameters = DeviceParameter[parameters...]
-    default_values = Dict{Tuple{Vararg{Symbol}},Any}(
-        Tuple(Symbol.(path)) => value for (path, value) in defaults
+    provided_defaults = Dict{Tuple{Vararg{Symbol}},Any}(
+        _model_default_parts(path) => value for (path, value) in defaults
     )
 
     prepared = Component[
         haskey(pretruncation_dims, component.name) ?
-            _pretruncate(component, Int(pretruncation_dims[component.name]), default_values) : component
+            _pretruncate(component, Int(pretruncation_dims[component.name]), provided_defaults) : component
         for component in components
     ]
     for component in prepared
@@ -87,15 +87,21 @@ function ModelSpec(
     for parameter in model_parameters
         registry[parameter.path] = parameter
     end
-    for (path, value) in default_values
-        haskey(registry, ParamPath(path...)) || error("Default path $(join(path, "/")) is not a component parameter.")
-        length(path) >= 2 && path[1] in names ||
-            error("Defaults may only target component parameters.")
-        _parameter_value(registry[ParamPath(path...)], value)
-    end
     for interaction in interactions, path in keys(QuantumDevices.parameters(interaction))
         haskey(registry, path) ||
             error("Interaction parameter $(join(path.parts, "/")) was not passed in parameters.")
+    end
+    for (path, value) in provided_defaults
+        parameter_path = ParamPath(path...)
+        haskey(registry, parameter_path) ||
+            error("Default path $(join(path, "/")) is not a registered model parameter.")
+        _parameter_value(registry[parameter_path], value)
+    end
+    default_values = Dict{Tuple{Vararg{Symbol}},Any}()
+    for (path, parameter) in registry
+        value = get(provided_defaults, path.parts, parameter.default)
+        _parameter_value(parameter, value)
+        default_values[path.parts] = value
     end
 
     selected = states_to_keep === nothing ? nothing :
@@ -114,6 +120,10 @@ function ModelSpec(
         Dimension(Tuple(final_dims)), selected, dressingspec)
 end
 
+_model_default_parts(path::Union{Tuple,AbstractVector}) =
+    Tuple(Symbol.(path))
+_model_default_parts(path) = _param_path(path).parts
+
 """Numerical model built from one `ModelSpec`."""
 struct QuantumDeviceModel
     spec::ModelSpec
@@ -122,6 +132,32 @@ struct QuantumDeviceModel
     states::Dict{Tuple{Vararg{Int}},Any}
     energies::Dict{Tuple{Vararg{Int}},Float64}
     dressing_res::StateTrackingResult
+end
+
+"""
+    parameters(model)
+
+Return the active non-fixed parameters accepted by `model.hamiltonian`.
+The dictionary keys are the `ParamPath`s expected by the `QobjEvo` parameter
+argument.
+"""
+parameters(model::QuantumDeviceModel) = _hamiltonian_parameters(model.spec)
+
+"""
+    hamiltonian(model; param=Dict{ParamPath,Any}(), t=0.0)
+
+Evaluate a model Hamiltonian at time `t` using `ParamPath`-keyed overrides.
+When `model.hamiltonian` is a `QobjEvo`, its direct call interface accepts the
+same dictionary as `model.hamiltonian(param, t)`.
+"""
+function hamiltonian(
+        model::QuantumDeviceModel;
+        param = Dict{ParamPath,Any}(),
+        t::Real = 0.0)
+    active = parameters(model)
+    checked = _validated_hamiltonian_param(model.spec, active, param)
+    model.hamiltonian isa QuantumObjectEvolution ?
+        model.hamiltonian(checked, t) : model.hamiltonian
 end
 
 """Evaluate a symbolic expression in a built model's operator basis."""
@@ -174,39 +210,10 @@ function model(component::Component; dim = nothing, params = nothing)
 end
 
 function _component_model_defaults(component, params)
-    defaults = Dict{Tuple{Vararg{Symbol}},Any}()
-    params === nothing && return defaults
-
-    supplied_keys = try
-        keys(params)
-    catch exception
-        exception isa MethodError || rethrow()
-        error("params must support keys(params) and params[key].")
-    end
-
-    available = parameters(component)
-    seen = Set{ParamPath}()
-    for key in supplied_keys
-        path = try
-            _param_path(key)
-        catch exception
-            exception isa MethodError || rethrow()
-            error("Unsupported component parameter key $key.")
-        end
-        haskey(available, path) ||
-            error("Component $(component.name) does not define parameter $(join(path.parts, "/")).")
-        path in seen &&
-            error("Component parameter path $(join(path.parts, "/")) was supplied more than once.")
-        push!(seen, path)
-        value = try
-            params[key]
-        catch exception
-            exception isa MethodError || rethrow()
-            error("params must support keys(params) and params[key].")
-        end
-        defaults[(component.name, path.parts...)] = value
-    end
-    defaults
+    Dict{Tuple{Vararg{Symbol}},Any}(
+        (component.name, path.parts...) => value
+        for (path, value) in _component_parameter_overrides(component, params)
+    )
 end
 
 function model(spec::ModelSpec)
@@ -265,10 +272,131 @@ function model(spec::ModelSpec)
     energies = Dict(label => dressed_energies[i] for (i, label) in enumerate(labels))
 
     selected = spec.states_to_keep !== nothing
-    hamiltonian = selected ? QuantumObject(Diagonal(ComplexF64.(dressed_energies))) : uncoupled + interaction
+    default_hamiltonian = selected ?
+        QuantumObject(Diagonal(ComplexF64.(dressed_energies))) :
+        uncoupled + interaction
     final_operators = selected ?
         Dict(path => _project(dressed_states, operator) for (path, operator) in embedded_operators) : embedded_operators
-    QuantumDeviceModel(spec, hamiltonian, final_operators, states, energies, dressing_res)
+    stored_hamiltonian =
+        _compiled_model_hamiltonian(spec, final_operators, default_hamiltonian)
+    QuantumDeviceModel(
+        spec,
+        stored_hamiltonian,
+        final_operators,
+        states,
+        energies,
+        dressing_res,
+    )
+end
+
+function _hamiltonian_parameters(spec::ModelSpec)
+    registry = Dict{ParamPath,DeviceParameter}()
+    for (name, component) in pairs(spec.subsystems)
+        for (path, _) in parameters(component)
+            model_path = ParamPath(name, path.parts...)
+            parameter = spec.parameters[model_path]
+            parameter.fixed || (registry[model_path] = parameter)
+        end
+    end
+    for interaction in spec.interactions
+        for parameter in values(parameters(interaction))
+            path = _model_parameter_path(spec, parameter)
+            registered = spec.parameters[path]
+            registered.fixed || (registry[path] = registered)
+        end
+    end
+    registry
+end
+
+function _validated_hamiltonian_param(spec, active, param)
+    param === nothing && return Dict{ParamPath,Any}()
+    param isa AbstractDict ||
+        error("Hamiltonian param must be an AbstractDict with ParamPath keys.")
+    for path in keys(param)
+        path isa ParamPath ||
+            error("Hamiltonian param keys must be ParamPath objects; got $(typeof(path)).")
+        if !haskey(active, path)
+            if haskey(spec.parameters, path) && spec.parameters[path].fixed
+                error("Hamiltonian parameter $(join(path.parts, "/")) is fixed.")
+            end
+            error("Hamiltonian parameter $(join(path.parts, "/")) is not an active non-fixed parameter.")
+        end
+    end
+    param
+end
+
+function _compiled_model_hamiltonian(spec, operators, default_hamiltonian)
+    _compile_model_hamiltonian(spec, operators, default_hamiltonian, nothing)
+end
+
+function _bound_model_hamiltonian(model::QuantumDeviceModel, controls)
+    _compile_model_hamiltonian(
+        model.spec,
+        model.operators,
+        hamiltonian(model),
+        controls,
+    )
+end
+
+function _compile_model_hamiltonian(spec, operators, default_hamiltonian, controls)
+    active = _hamiltonian_parameters(spec)
+    isempty(active) && return default_hamiltonian
+
+    total = nothing
+    for (name, component) in pairs(spec.subsystems)
+        value = _numerical_expression(
+            hamiltonian(component),
+            path -> _model_operator(operators, path, name),
+            parameter -> begin
+                path = ParamPath(name, parameter.path.parts...)
+                _model_hamiltonian_coefficient(spec, active, path, controls)
+            end,
+        )
+        total = total === nothing ? value : total + value
+    end
+    for interaction in spec.interactions
+        value = _numerical_expression(
+            interaction,
+            path -> _model_operator(operators, path),
+            parameter -> _model_hamiltonian_coefficient(
+                spec,
+                active,
+                _model_parameter_path(spec, parameter),
+                controls,
+            ),
+        )
+        total = total === nothing ? value : total + value
+    end
+
+    baseline = total isa QuantumObjectEvolution ?
+        total(Dict{ParamPath,Any}(), 0.0) : total
+    total + default_hamiltonian - baseline
+end
+
+function _model_hamiltonian_coefficient(spec, active, path, controls = nothing)
+    parameter = spec.parameters[path]
+    default = _model_value(spec, path)
+    parameter.fixed && return default
+    if controls !== nothing
+        value = get(controls, path, default)
+        return _parameter_value(parameter, value)
+    end
+    _ParameterizedCoefficient((param, time) -> begin
+        checked = _validated_hamiltonian_param(spec, active, param)
+        value = haskey(checked, path) ?
+            _parameter_value(parameter, checked[path]) :
+            default
+        _at(value, time)
+    end)
+end
+
+function _model_operator(operators, path, component = nothing)
+    rooted = length(path) >= 1 && path[1] == :components
+    relative = _canonical_reference(path, :operators)
+    key = rooted || component === nothing ? relative : (component, relative...)
+    haskey(operators, key) ||
+        error("Operator path $(join(key, "/")) is not available in model Hamiltonian.")
+    operators[key]
 end
 
 function _model_parameter_path(spec::ModelSpec, parameter::DeviceParameter)
@@ -284,7 +412,9 @@ function _model_value(spec::ModelSpec, path::ParamPath)
     haskey(spec.parameters, path) ||
         error("Parameter $(join(path.parts, "/")) is not registered in model $(spec.name).")
     parameter = spec.parameters[path]
-    _parameter_value(parameter, get(spec.defaults, path.parts, parameter.default))
+    haskey(spec.defaults, path.parts) ||
+        error("ModelSpec $(spec.name) does not snapshot parameter $(join(path.parts, "/")).")
+    _parameter_value(parameter, spec.defaults[path.parts])
 end
 
 function _pretruncate(component::Component, dimension::Int, defaults)
@@ -312,7 +442,7 @@ function _pretruncate(component::Component, dimension::Int, defaults)
 end
 
 function component(model::QuantumDeviceModel; name = model.spec.name, dimension = nothing)
-    eigensystem = eigenstates(model.hamiltonian)
+    eigensystem = eigenstates(hamiltonian(model))
     keep = dimension === nothing ? length(eigensystem.values) : Int(dimension)
     1 <= keep <= length(eigensystem.values) || error("Invalid effective component dimension $keep.")
     projection = eigensystem.vectors[:, 1:keep]

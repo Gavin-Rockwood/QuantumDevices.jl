@@ -80,11 +80,20 @@ import QuantumDevices as QD
     @test occursin("g = 0.1", spec_text)
     @test occursin("g × q1.x × q2.x", spec_text)
 
+    QD.update!(q1; params = (frequency = 5.4,))
+    @test occursin(
+        "frequency = 5.4",
+        sprint(show, MIME"text/plain"(), q1),
+    )
+    preserved_spec_text = sprint(show, MIME"text/plain"(), spec)
+    @test occursin("q1/frequency = 5.0", preserved_spec_text)
+
     model_value = QD.model(spec)
     model_text = sprint(show, MIME"text/plain"(), model_value)
     @test sprint(show, model_value) ==
           "QuantumDeviceModel(:pair; dimension=4, 12 operators)"
-    @test occursin("Hamiltonian: 4×4", model_text)
+    @test occursin("Hamiltonian: 4×4 (QobjEvo)", model_text)
+    @test occursin("Free parameters: q1/frequency, q2/frequency", model_text)
     @test occursin("States: 4", model_text)
     @test occursin("Energies: 4", model_text)
 

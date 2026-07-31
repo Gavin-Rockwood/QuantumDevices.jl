@@ -17,6 +17,10 @@ import UnicodePlots as up
     include("flux_tunable_transmon_test.jl")
     include("resonator_test.jl")
     include("gate_spec_test.jl")
+    include("gate_optimization_test.jl")
+    if Base.find_package("Piccolo") !== nothing
+        include("piccolo_extension_test.jl")
+    end
     include("quantum_device_test.jl")
     include("state_tracking_test.jl")
 end

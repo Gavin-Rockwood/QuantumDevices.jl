@@ -95,7 +95,7 @@ function register!(device::QuantumDevice, gate::GateSpec)
             "GateSpec $(gate.name) requires its exact ModelSpec " *
             "$(gate.modelspec.name) to be registered.",
         )
-    device.gatespecs[gate.name] = gate
+    device.gatespecs[gate.name] = _snapshot_gate(gate)
     device
 end
 

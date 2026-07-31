@@ -148,6 +148,13 @@ end
 
 _get_params!(parameters, ::Expr{ScalarRole{Data}}) where {Data<:Number} = parameters
 
+struct _ParameterizedCoefficient{F}
+    evaluate::F
+end
+
+(coefficient::_ParameterizedCoefficient)(parameters, time) =
+    coefficient.evaluate(parameters, time)
+
 """Evaluate a scalar expression to either a number or a function of time."""
 function _numerical_scalar(expr::ScalarExpr, parameter_lookup)
     expr.head == :const && return expr.args[1]
@@ -174,13 +181,28 @@ function _numerical_scalar(expr::ScalarExpr, parameter_lookup)
     error("Unknown scalar expression head $(expr.head).")
 end
 
+_time_unary(operation, value::_ParameterizedCoefficient) =
+    _ParameterizedCoefficient((parameters, time) ->
+        operation(value(parameters, time)))
 _time_unary(operation, value::Function) = time -> operation(value(time))
 _time_unary(operation, value) = operation(value)
 
 function _time_binary(operation, left, right)
+    if left isa _ParameterizedCoefficient || right isa _ParameterizedCoefficient
+        return _ParameterizedCoefficient((parameters, time) ->
+            operation(
+                _coefficient_at(left, parameters, time),
+                _coefficient_at(right, parameters, time),
+            ))
+    end
     left isa Function || right isa Function || return operation(left, right)
     time -> operation(_at(left, time), _at(right, time))
 end
+
+_coefficient_at(value::_ParameterizedCoefficient, parameters, time) =
+    value(parameters, time)
+_coefficient_at(value::Function, parameters, time) = value(time)
+_coefficient_at(value, parameters, time) = value
 
 """Compile an operator expression using fixed operators and scalar coefficients."""
 function _numerical_expression(expr::OperatorExpr, operator_lookup, parameter_lookup)
@@ -188,10 +210,12 @@ function _numerical_expression(expr::OperatorExpr, operator_lookup, parameter_lo
     static = nothing
     dynamic = Tuple{Any,Function}[]
     for (coefficient, operator) in terms
-        if coefficient isa Function
+        if coefficient isa Union{Function,_ParameterizedCoefficient}
             operator isa QuantumObject ||
                 error("Time-dependent expressions require QuantumObject operators.")
-            push!(dynamic, (operator, (p, t) -> coefficient(t)))
+            push!(dynamic, (operator,
+                (parameters, time) ->
+                    _coefficient_at(coefficient, parameters, time)))
         else
             term = coefficient * operator
             static = static === nothing ? term : static + term

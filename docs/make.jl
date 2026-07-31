@@ -18,6 +18,7 @@ const PAGES = [
             "Propagators" => "user_guide/dynamics/propagators/propagators.md",
             "Drives" => "user_guide/dynamics/drives/drives.md",
             "Envelopes" => "user_guide/dynamics/envelopes/envelopes.md",
+            "Gates and Optimization" => "user_guide/dynamics/gates_and_optimization.md",
             "Resonance and Calibration" => "user_guide/dynamics/resonance_and_calibration/resonance_and_calibration.md",
         ],
     ],

@@ -46,21 +46,27 @@ struct ParamPath
     parts::Tuple{Vararg{Symbol}}
 end
 ParamPath(x::Symbol ...) = ParamPath(x)
+function ParamPath(path::AbstractString)
+    parts = split(path, r"[/.]"; keepempty = true)
+    (isempty(path) || any(isempty, parts)) &&
+        throw(ArgumentError("ParamPath strings must contain non-empty path segments."))
+    ParamPath(Symbol.(parts)...)
+end
 
 _param_path(path::ParamPath) = path
 _param_path(path::Symbol) = ParamPath(path)
 _param_path(path::Tuple{Vararg{Symbol}}) = ParamPath(path...)
 _param_path(path::AbstractVector{Symbol}) = ParamPath(path...)
-_param_path(path::AbstractString) = ParamPath(Symbol.(split(path, "."))...)
+_param_path(path::AbstractString) = ParamPath(path)
 
-struct DeviceParameter
-    path::ParamPath
-    domain::Domain
-    fixed::Bool
-    required::Bool
+mutable struct DeviceParameter
+    const path::ParamPath
+    const domain::Domain
+    const fixed::Bool
+    const required::Bool
     default::Any
-    description::String
-    metadata::Dict{Symbol, Any}
+    const description::String
+    const metadata::Dict{Symbol, Any}
 
     function DeviceParameter(path::ParamPath, domain::Domain, fixed::Bool,
             required::Bool, default, description::String,
@@ -91,6 +97,13 @@ function DeviceParameter(
         String(description),
         _metadata_dict(metadata)
     )
+end
+
+function Base.setproperty!(parameter::DeviceParameter, name::Symbol, value)
+    name === :default ||
+        error("DeviceParameter field $name is immutable.")
+    _parameter_value(parameter, value)
+    setfield!(parameter, :default, value)
 end
 
 function _parameter_value(parameter::DeviceParameter, value = parameter.default)

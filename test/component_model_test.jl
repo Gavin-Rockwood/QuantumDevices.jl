@@ -19,7 +19,8 @@ end
     @test size(qubit_model.hamiltonian) == (2, 2)
     @test qubit_model.spec.name == :qubit
     @test keys(qubit_model.spec.subsystems) == (:qubit,)
-    @test isempty(qubit_model.spec.defaults)
+    @test qubit_model.spec.defaults ==
+        Dict{Tuple{Vararg{Symbol}},Any}((:qubit, :frequency) => 5.0)
 
     resonator = QD.Component(QD.ResonatorSpec(6.0; dimension = 3), :resonator)
     @test size(QD.model(resonator; dim = 2).hamiltonian) == (2, 2)
@@ -47,7 +48,10 @@ end
 
     large_at_flux = QD.model(ftt; dim = 121, params = Dict(:flux => 0.2))
     @test size(large_at_flux.hamiltonian) == (121, 121)
+    @test large_at_flux.hamiltonian isa QD.QobjEvo
     @test large_at_flux.spec.defaults[(:ftt, :flux)] == 0.2
+    @test Set(keys(QD.parameters(large_at_flux))) ==
+        Set([QD.ParamPath(:ftt, :flux)])
 
     at_flux = QD.model(ftt; dim = 9, params = Dict(:flux => 0.2))
     @test at_flux.spec.defaults[(:ftt, :flux)] == 0.2
@@ -61,7 +65,7 @@ end
         defaults = Dict((:ftt, :flux) => 0.2),
     )
     explicit = QD.model(explicit_spec)
-    @test norm(at_flux.hamiltonian - explicit.hamiltonian) < 1e-12
+    @test norm(QD.hamiltonian(at_flux) - QD.hamiltonian(explicit)) < 1e-12
 
     baseline = QD.model(ftt; dim = 9)
     @test norm(
@@ -85,6 +89,9 @@ end
     @test custom.spec.defaults == Dict(
         (:ftt, :flux) => 0.1,
         (:ftt, :EC) => 0.28,
+        (:ftt, :EJ1) => 10.0,
+        (:ftt, :EJ2) => 10.0,
+        (:ftt, :ng) => 0.0,
     )
 
     duplicate_mapping = ComponentParameterMap(Pair{Any,Any}[
