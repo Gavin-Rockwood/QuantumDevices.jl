@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+      - dev
+    tags:
+      - 'v*'
   pull_request:
 
 jobs:
@@ -16,4 +19,4 @@ jobs:
           version: '1'
       - uses: julia-actions/cache@v2
       - name: Run tests
-        run: julia --startup-file=no --color=yes --project=. test/runtests.jl
+        run: julia --startup-file=no --color=yes --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'

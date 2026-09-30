@@ -1,16 +1,3 @@
-```@raw html
----
-layout: home
-
-hero:
-  name: "QuantumDevices.jl"
-  tagline: A VERY IN DEVELOPMENT pure Julia package for modeling the dynamics of quantum devices.
-  actions:
-    - theme: brand
-      text: Getting Started
-      link: /getting_started/overview.md
-    - theme: alt
-      text: Users Guide
-      link: /resources/api.md
----
-```
+QuantumDevices uses QuantumToolbox for quantum operators and evolution, and SciML
+for optimization. Start with the [quickstart](getting_started/quickstart.md), then
+follow the [model guide](user_guide/models.md) and [calibration tutorial](user_guide/calibration.md).

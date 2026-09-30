@@ -2,9 +2,8 @@ name: Documentation
 
 on:
   push:
-    branches:
-      - main
-    tags: '*'
+    branches: [dev]
+    tags: ['v*']
   pull_request:
 
 concurrency:
@@ -14,24 +13,41 @@ concurrency:
 jobs:
   build:
     permissions:
-      actions: write
       contents: write
       pull-requests: read
       statuses: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: julia-actions/setup-julia@v2
         with:
           version: '1'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
       - uses: julia-actions/cache@v2
       - name: Install documentation dependencies
-        shell: julia --color=yes --project=docs {0}
+        shell: julia --startup-file=no --color=yes --project=docs {0}
         run: |
           using Pkg
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
-      - name: Build and deploy documentation
+      - name: Check release tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: julia --startup-file=no --project=. -e 'using TOML; expected = "v" * TOML.parsefile("Project.toml")["version"]; actual = ENV["GITHUB_REF_NAME"]; actual == expected || error("Release tag $actual does not match $expected")'
+      - name: Build and deploy eligible documentation
         run: julia --startup-file=no --color=yes --project=docs docs/make.jl
         env:
+          DOCS_DEPLOY: ${{ github.event_name == 'push' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload built site
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: docs/build/final_site
+          if-no-files-found: ignore

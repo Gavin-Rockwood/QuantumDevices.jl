@@ -1,104 +1,66 @@
 import { defineConfig } from 'vitepress'
-import { tabsMarkdownPlugin } from 'vitepress-plugin-tabs'
-import mathjax3 from "markdown-it-mathjax3";
-import footnote from "markdown-it-footnote";
-import path from 'path'
+import path from 'node:path'
 
-function getBaseRepository(base: string): string {
-  if (!base || base === '/') return '/';
-  const parts = base.split('/').filter(Boolean);
-  return parts.length > 0 ? `/${parts[0]}/` : '/';
-}
+// Documenter replaces these placeholders for branch, release, and preview builds.
+const location = { base: 'REPLACE_ME_DOCUMENTER_VITEPRESS' }
+const repositoryBase = '/' + location.base.split('/').filter(Boolean)[0] + '/'
+const versionScripts: any[] = process.env.DOCS_DEPLOY === 'true' ? [
+  ['script', { src: `${repositoryBase}versions.js` }],
+  ['script', { src: `${location.base}siteinfo.js` }],
+] : []
 
-const baseTemp = {
-  base: 'REPLACE_ME_DOCUMENTER_VITEPRESS',// TODO: replace this in makedocs!
-}
-
-const navTemp = {
-  nav: 'REPLACE_ME_DOCUMENTER_VITEPRESS',
-}
-
-const nav = [
-  ...navTemp.nav,
-  {
-    component: 'VersionPicker'
-  }
-]
-
-// https://vitepress.dev/reference/site-config
 export default defineConfig({
-  base: 'REPLACE_ME_DOCUMENTER_VITEPRESS',// TODO: replace this in makedocs!
+  base: 'REPLACE_ME_DOCUMENTER_VITEPRESS',
   title: 'REPLACE_ME_DOCUMENTER_VITEPRESS',
   description: 'REPLACE_ME_DOCUMENTER_VITEPRESS',
+  outDir: 'REPLACE_ME_DOCUMENTER_VITEPRESS',
+  // Documenter parses Markdown before VitePress; supply homepage metadata here.
+  transformPageData(page) {
+    if (page.relativePath !== 'index.md') return
+    page.frontmatter = {
+      ...page.frontmatter,
+      layout: 'home',
+      hero: {
+        name: 'QuantumDevices.jl',
+        text: 'From device Hamiltonians to calibrated gates',
+        tagline: 'Build symbolic quantum-device models, retain the physics you need, and simulate controlled evolution in Julia.',
+        actions: [
+          { theme: 'brand', text: 'Start building', link: '/getting_started/quickstart' },
+          { theme: 'alt', text: 'API reference', link: '/resources/api' },
+        ],
+      },
+      features: [
+        { title: 'Compose device models', details: 'Combine qubits and transmons using symbolic parameters and ordered operator products.' },
+        { title: 'Shape and calibrate controls', details: 'Use built-in pulses, independent flattop ramps, and caller-selected SciML optimizers.' },
+        { title: 'Keep results reproducible', details: 'Track dressed states and save reconstructible models with their named gates.' },
+      ],
+    }
+  },
   lastUpdated: true,
   cleanUrls: true,
-  outDir: 'REPLACE_ME_DOCUMENTER_VITEPRESS', // This is required for MarkdownVitepress to work correctly...
   head: [
-    ['link', { rel: 'icon', href: '/SuperconductingCircuits.jl/favicon.ico' }],
-    ['script', {src: `${getBaseRepository(baseTemp.base)}versions.js`}],
-    // ['script', {src: '/versions.js'], for custom domains, I guess if deploy_url is available.
-    ['script', {src: `${baseTemp.base}siteinfo.js`}]
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: `${location.base}favicon.svg` }],
+    ...versionScripts,
   ],
-  
-  vite: {
-    define: {
-      __DEPLOY_ABSPATH__: JSON.stringify('REPLACE_ME_DOCUMENTER_VITEPRESS_DEPLOY_ABSPATH'),
-    },
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '../components')
-      }
-    },
-    optimizeDeps: {
-      exclude: [ 
-        '@nolebase/vitepress-plugin-enhanced-readabilities/client',
-        'vitepress',
-        '@nolebase/ui',
-      ], 
-    }, 
-    ssr: { 
-      noExternal: [ 
-        // If there are other packages that need to be processed by Vite, you can add them here.
-        '@nolebase/vitepress-plugin-enhanced-readabilities',
-        '@nolebase/ui',
-      ], 
-    },
-  },
+  vite: { resolve: { alias: { '@': path.resolve(__dirname, '../components') } } },
   markdown: {
     math: true,
-
-    // options for @mdit-vue/plugin-toc
-    // https://github.com/mdit-vue/mdit-vue/tree/main/packages/plugin-toc#options
-    toc: { level: [2, 3, 4] }, // for API page, triggered by: [[toc]]
-
-    config(md) {
-      md.use(tabsMarkdownPlugin),
-      md.use(mathjax3),
-      md.use(footnote)
-    },
-    theme: {
-      light: "github-light",
-      dark: "github-dark"
-    }
+    theme: { light: 'github-light', dark: 'github-dark' },
   },
   themeConfig: {
-    outline: 'deep',
-    logo: 'REPLACE_ME_DOCUMENTER_VITEPRESS',
-    search: {
-      provider: 'local',
-      options: {
-        detailedView: true
-      }
-    },
-    nav,
+    outline: [2, 3],
+    search: { provider: 'local', options: { detailedView: true } },
+    nav: [
+      { text: 'Start', link: '/getting_started/quickstart' },
+      { text: 'Guide', link: '/user_guide/models' },
+      { text: 'Demos', link: '/demos/transmon_resonator_control' },
+      { text: 'API', link: '/resources/api' },
+      { text: 'Development', link: '/development/extensions' },
+      { component: 'VersionPicker' },
+    ],
     sidebar: 'REPLACE_ME_DOCUMENTER_VITEPRESS',
     editLink: 'REPLACE_ME_DOCUMENTER_VITEPRESS',
-    socialLinks: [
-      { icon: 'github', link: 'REPLACE_ME_DOCUMENTER_VITEPRESS' }
-    ],
-    footer: {
-      message: 'Made with <a href="https://documenter.juliadocs.org/stable/" target="_blank"><strong>Documenter.jl</strong></a>, <a href="https://vitepress.dev" target="_blank"><strong>VitePress</strong></a> and <a href="https://luxdl.github.io/DocumenterVitepress.jl/stable" target="_blank"><strong>DocumenterVitepress.jl</strong></a><br> Powered by the <a href="https://www.julialang.org" target="_blank">Julia Programming Language</a>.<br>',
-      copyright: `© Copyright ${new Date().getUTCFullYear()}.`
-    }
-  }
+    socialLinks: [{ icon: 'github', link: 'REPLACE_ME_DOCUMENTER_VITEPRESS' }],
+    footer: { message: 'Built with Julia, Documenter, and VitePress.' },
+  },
 })

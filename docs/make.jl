@@ -2,47 +2,104 @@ using QuantumDevices
 using Documenter
 using DocumenterVitepress
 
+const DOCS_ROOT = @__DIR__
+const BUILD_ROOT = joinpath(DOCS_ROOT, "build")
+const MARKDOWN_ONLY = get(ENV, "DOCS_MARKDOWN_ONLY", "false") == "true"
+const DEPLOY = get(ENV, "DOCS_DEPLOY", "false") == "true"
+
+function documentation_versions()
+    repository = normpath(joinpath(DOCS_ROOT, ".."))
+    tags = split(read(`git -C $repository tag --list`, String), '\n'; keepempty=false)
+    filter!(tag -> startswith(tag, "v") && tryparse(VersionNumber, tag) !== nothing, tags)
+    sort!(tags; by=VersionNumber, rev=true)
+    return vcat([tag => tag for tag in tags], ["dev" => "dev"])
+end
+
 DocMeta.setdocmeta!(QuantumDevices, :DocTestSetup, :(using QuantumDevices); recursive=true)
+
+# checkdocs catches omitted documented exports; this audit also catches absent docstrings.
+undocumented = filter(names(QuantumDevices)) do name
+    name != :QuantumDevices && Base.Docs.doc(Base.Docs.Binding(QuantumDevices, name)) === nothing
+end
+isempty(undocumented) || error("Exported API lacks docstrings: $(join(undocumented, ", "))")
+
 const PAGES = [
     "Home" => "index.md",
-    "Getting Started" => [
-        "Overview" => "getting_started/overview.md",
+    "Getting started" => [
+        "Installation and concepts" => "getting_started/overview.md",
+        "First model and gate" => "getting_started/quickstart.md",
     ],
-    "User Guide" => [
-        "Circuits" => [
-            "Circuit Elements" => "user_guide/circuits/circuit_elements/circuit_elements.md",
-            "Building Circuits" => "user_guide/circuits/building_circuits/building_circuits.md",
-        ],
-        "Dynamics" => [
-            "Floquet Tools" => "user_guide/dynamics/floquet/floquet.md",
-            "Propagators" => "user_guide/dynamics/propagators/propagators.md",
-            "Drives" => "user_guide/dynamics/drives/drives.md",
-            "Envelopes" => "user_guide/dynamics/envelopes/envelopes.md",
-            "Resonance and Calibration" => "user_guide/dynamics/resonance_and_calibration/resonance_and_calibration.md",
-        ],
+    "User guide" => [
+        "Symbolic Hamiltonians" => "user_guide/symbolics.md",
+        "Components" => "user_guide/components.md",
+        "Models and truncation" => "user_guide/models.md",
+        "Pulses and flattops" => "user_guide/pulses.md",
+        "Gates and evolution" => "user_guide/gates.md",
+        "Calibration" => "user_guide/calibration.md",
+        "Parameter updates" => "user_guide/parameters.md",
+        "State tracking" => "user_guide/tracking.md",
+        "Persistence" => "user_guide/persistence.md",
     ],
-    "Resources" => [
-        "API" => "resources/api.md",
-    ],   
+    "Demos" => [
+        "Transmon resonator control" => "demos/transmon_resonator_control.md",
+        "Tunable coupler control" => "demos/tunable_coupler_control.md",
+    ],
+    "Technical explanations" => [
+        "Conventions and metrics" => "explanations/conventions.md",
+        "Projection and bases" => "explanations/projection.md",
+    ],
+    "API reference" => [
+        "Overview" => "resources/api.md",
+        "Symbolics" => "reference/symbolics.md",
+        "Components and models" => "reference/models.md",
+        "Pulses, gates, calibration" => "reference/gates.md",
+        "Tracking and paths" => "reference/tracking.md",
+        "Persistence" => "reference/persistence.md",
+    ],
+    "Development" => [
+        "Extensions" => "development/extensions.md",
+        "Contributing and builds" => "development/contributing.md",
+    ],
 ]
 
 makedocs(;
+    root = DOCS_ROOT,
     modules = [QuantumDevices],
     authors = "Gavin Rockwood",
     sitename = "QuantumDevices.jl",
-    format = DocumenterVitepress.MarkdownVitepress(
+    format = MarkdownVitepress(
         repo = "github.com/Gavin-Rockwood/QuantumDevices.jl",
-        devbranch = "main",
+        devbranch = "dev",
+        description = "Symbolic quantum-device models, shaped controls, and calibrated gates in Julia.",
+        build_vitepress = false,
+        clean_md_output = false,
+        deploy_decision = DEPLOY ? nothing : Documenter.DeployDecision(
+            all_ok=false, repo="github.com/Gavin-Rockwood/QuantumDevices.jl", subfolder="dev"),
     ),
     remotes = nothing,
     pages = PAGES,
-    checkdocs = :none
+    checkdocs = :exports,
+    doctest = true,
+    warnonly = false,
 )
 
-deploydocs(;
-    repo = "github.com/Gavin-Rockwood/QuantumDevices.jl",
-    target = joinpath(@__DIR__, "build"),
-    devbranch = "main",
-    branch = "gh-pages",
-    push_preview = true,
-)
+if !MARKDOWN_ONLY
+    cd(DOCS_ROOT) do
+        run(`npm ci --no-audit --no-fund`)
+        run(`npm run docs:build`)
+    end
+    isfile(joinpath(BUILD_ROOT, "final_site", "index.html")) || error("VitePress did not emit index.html")
+end
+
+if DEPLOY
+    MARKDOWN_ONLY && error("Cannot deploy a Markdown-only build")
+    deploydocs(;
+        root = DOCS_ROOT,
+        repo = "github.com/Gavin-Rockwood/QuantumDevices.jl",
+        target = "build/final_site",
+        devbranch = "dev",
+        branch = "gh-pages",
+        push_preview = true,
+        versions = documentation_versions(),
+    )
+end
