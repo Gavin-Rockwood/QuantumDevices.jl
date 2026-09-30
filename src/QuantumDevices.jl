@@ -15,7 +15,7 @@ module QuantumDevices
     include("symbolics/symbolics.jl")
     export Sym, op, param, val, call, numerical
 
-    include("components/components.jl")
+    include("Components/Components.jl")
     export Component, make_qubit, make_resonator, make_transmon, make_tunable_transmon
 
     include("model/model.jl")
