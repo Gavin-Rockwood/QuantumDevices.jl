@@ -33,8 +33,9 @@ H(0.5)
 ```
 
 Hamiltonian coefficients use energy/ℏ units reciprocal to simulation time.
-The current API replaces the old Circuits/Dynamics modules; see the documentation's
-migration guide for supported equivalents.
+The current API replaces the old Circuits/Dynamics modules; start with the
+[package overview](https://gavin-rockwood.github.io/QuantumDevices.jl/dev/getting_started/overview)
+when upgrading existing code.
 
 Run tests with `julia --project=. -e 'using Pkg; Pkg.test()'`. See
 [development instructions](docs/src/development/contributing.md) for building the
