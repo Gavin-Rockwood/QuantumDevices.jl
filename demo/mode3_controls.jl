@@ -1,3 +1,11 @@
+# Transmon–resonator control tutorial
+# Run from the repository root:
+#   julia --project=demo -e 'using Pkg; Pkg.instantiate()'
+#   julia --project=demo demo/mode3_controls.jl [figure_directory]
+# With no directory argument, figures are saved to a new temporary directory.
+# Include this file instead to work through its helpers interactively; inclusion
+# defines the module without running the simulation or writing figures.
+
 module Mode3ControlsDemo
 
 using CairoMakie
@@ -10,12 +18,17 @@ using SciMLBase
 export load_controls, saved_envelope, drive_pulse, make_gate, make_mode3_model,
        sideband_gap, sideband_population, plot_controls
 
+# 1. Load the saved control records. Frequencies and amplitudes are in GHz;
+# times are in ns. Convert energy and drive coefficients to rad/ns with 2π.
 const DATA_PATH = joinpath(@__DIR__, "data", "mode3_controls.json")
 
 """Read the relevant Mode3 records transcribed from the supplied save file."""
 load_controls(path=DATA_PATH) = JSON3.read(read(path, String))
 
 record(data, name) = data["Stuff"]["op_drive_params"][name]
+
+# 2. Define the envelope and carrier separately. GenericPulseFunction passes
+# the owning gate duration to the callable as p.duration.
 
 # This normalized source is the old Bump_Envelope on the unit interval.
 struct BumpSource end
@@ -63,6 +76,9 @@ function drive_pulse(pulse_record)
     return GenericPulseFunction(Carrier(envelope), (; epsilon, frequency))
 end
 
+# 3. Attach a time-dependent coefficient to a symbolic charge operator.
+# param(:drive) reads the matching entry in the gate parameters.
+
 """Attach a saved control to the transmon charge operator."""
 function make_gate(data, name)
     pulse_record = record(data, name)
@@ -70,6 +86,9 @@ function make_gate(data, name)
     return DeviceGate((; drive=drive_pulse(pulse_record)),
         param(:drive) * op(:q_charge), duration)
 end
+
+# 4. Construct components, couple them, and select the retained dimensions.
+# op(:q_charge) and op(:r_a) use the component names as prefixes.
 
 """
 Build the saved transmon–Mode3 model. The default 10×10 retained space matches
@@ -97,6 +116,9 @@ function make_mode3_model(data=load_controls(); transmon_levels=nothing,
     return model
 end
 
+# 5. Convert the model and gate into a numerical Hamiltonian, evolve a dressed
+# state, and measure its overlap with the target state. Labels are zero-based.
+
 """Return the dressed `|f,0⟩`–`|g,1⟩` gap in cycles/ns."""
 sideband_gap(model) = (model.others[(2, 0)] - model.others[(0, 1)]) / 2pi
 
@@ -110,6 +132,8 @@ function sideband_population(model; samples=101, abstol=1e-7, reltol=1e-7)
     target = model.states[(0, 1)]
     return times, [abs2(dot(target, state)) for state in result.states]
 end
+
+# 6. Inspect envelopes and carriers before interpreting the evolution.
 
 """Plot the saved qubit and f0g1 envelope and carrier coefficients."""
 function plot_controls(data=load_controls())
@@ -153,4 +177,28 @@ function plot_controls(data=load_controls())
     return fig
 end
 
+"""Run the tutorial and save its two figures to `output_dir`."""
+function main(output_dir=mktempdir(; cleanup=false, prefix="mode3-tutorial-"))
+    mkpath(output_dir)
+    controls = load_controls()
+    CairoMakie.save(joinpath(output_dir, "controls.png"), plot_controls(controls))
+
+    # Use the saved 10×10 space to reproduce the sideband transfer.
+    model = make_mode3_model(controls)
+    times, population = sideband_population(model; samples=201, abstol=1e-8, reltol=1e-8)
+    fig = Figure(size=(700, 380))
+    ax = Axis(fig[1, 1]; xlabel="Time (ns)", ylabel="|g,1⟩ population",
+        title="f0g1 sideband transfer")
+    lines!(ax, times, population; color=:purple, linewidth=3)
+    ylims!(ax, 0, 1.05)
+    CairoMakie.save(joinpath(output_dir, "transfer.png"), fig)
+    println("Final |g,1⟩ population: ", last(population))
+    println("Figures saved to ", abspath(output_dir))
+    return (; model, times, population)
+end
+
 end # module
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    isempty(ARGS) ? Mode3ControlsDemo.main() : Mode3ControlsDemo.main(only(ARGS))
+end

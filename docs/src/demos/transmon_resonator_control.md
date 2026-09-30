@@ -1,70 +1,139 @@
 # Transmon resonator control
 
-This demo rebuilds the qubit Gaussian pulses and the `sb_f0g1` sideband from a
-saved Mode3 control set. The [control data](https://github.com/Gavin-Rockwood/QuantumDevices.jl/blob/main/demo/data/mode3_controls.json)
-and [Julia implementation](https://github.com/Gavin-Rockwood/QuantumDevices.jl/blob/main/demo/mode3_controls.jl)
-are in `demo/` so the same code can be run outside the documentation site. The
-data file contains the qubit records, `sb_f0g1`, and the model parameters from
-the supplied save; it does not include the other sidebands or chirp fit.
+Build a coupled transmon–resonator model, attach shaped charge drives, and
+simulate transfer from the dressed `|f,0⟩` state to `|g,1⟩`. This tutorial uses a
+saved control set so you can focus on assembling and running the model.
 
-The save came from a [SuperconductingCavitiesDemo](https://github.com/Gavin-Rockwood/SuperconductingCircuits.jl)
-simulation. Its `Guassian` spelling is preserved in the data. The envelope
-shapes are a Gaussian centered at `mu` and a bump-ramp with the saved `k` and
-`ramp_time`. The latter uses this package's `ramped_flattop_pulse` with a bump
-source. `shift` is a **frequency offset**, added to `freq_d`; it is not an
-envelope offset. Time is in ns and saved frequencies and amplitudes are in
-cycles/ns (GHz). The Hamiltonian coefficient is
-`2π epsilon × envelope(t) × sin(2π (freq_d + shift) t)` in rad/ns.
+## 1. Set up and load the controls
+
+From the repository root, install the demo dependencies once:
+
+```sh
+julia --project=demo -e 'using Pkg; Pkg.instantiate()'
+```
+
+You can run the whole [Julia tutorial](https://github.com/Gavin-Rockwood/QuantumDevices.jl/blob/main/demo/mode3_controls.jl)
+with `julia --project=demo demo/mode3_controls.jl`. It prints the final population
+and saves two figures in a temporary directory; pass a directory as the last
+argument to choose where to save them. To follow along interactively, start
+`julia --project=demo` and use the steps below.
 
 ```@example mode3
-using QuantumDevices, CairoMakie
+using QuantumDevices, QuantumToolbox, CairoMakie, LinearAlgebra, SciMLBase
 include(joinpath(pkgdir(QuantumDevices), "demo", "mode3_controls.jl"))
 using .Mode3ControlsDemo
 controls = load_controls()
-fig = plot_controls(controls)
-fig
+config = controls["Main_Config"]
+saved = controls["Stuff"]["op_drive_params"]["sb_f0g1"]
+(; duration_ns=saved["pulse_time"], frequency_GHz=saved["freq_d"])
 ```
 
-The top row shows the `q_ge_0` and `q_ef_0` pulses. The lower row shows the
-`sb_f0g1` envelope and a short section of its carrier. The carrier panels show
-the Hamiltonian coefficient divided by `2π`.
+The [data file](https://github.com/Gavin-Rockwood/QuantumDevices.jl/blob/main/demo/data/mode3_controls.json)
+contains model parameters, qubit pulses, and the `sb_f0g1` sideband. Time is in
+ns; saved energies, frequencies, and amplitudes are in cycles/ns (GHz).
+QuantumDevices Hamiltonians use angular units, so multiply these energies and
+drive coefficients by `2π`.
+
+## 2. Build the components and their interaction
+
+Create a transmon in the saved charge basis and a resonator in its Fock basis.
+Component names determine operator prefixes: `q` supplies `:q_charge`, and `r`
+supplies `:r_a` and `:r_adag`.
 
 ```@example mode3
-model = make_mode3_model(controls; transmon_levels=4, resonator_levels=3)
-@assert length(model.gates) == length(controls["Stuff"]["op_drive_params"])
-@assert abs(real(sideband_gap(model)) - abs(controls["Stuff"]["op_drive_params"]["sb_f0g1"]["freq_d"])) < 1e-3
-(; qubit_gate=model.gates[:q_ge_0].duration,
-   sideband_gate=model.gates[:sb_f0g1].duration,
-   dressed_gap_GHz=real(sideband_gap(model)))
+q = make_transmon("q", 2pi * config["E_C"], 2pi * config["E_J"],
+    2 * Int(config["Nt_cut"]) + 1; ng=config["ng"])
+r = make_resonator("r", 2pi * config["E_oscs"][1], Int(config["Nrs"][1]))
+interaction = param(:g) * op(:q_charge) * (1im * (op(:r_a) - op(:r_adag)))
+model = make_model([q, r], interaction, (; g=2pi * config["gs"][1]);
+    truncation_dimensions=Dict(q => 4, r => 3), max_dimension=12)
+size(model.H)
 ```
 
-The model uses the saved transmon and resonator energies and their charge–mode
-coupling. It drives the transmon charge operator for both qubit and sideband
-controls. The example retains four transmon and three resonator levels to keep
-the documentation build quick. Omit both dimension keywords to use the saved
-10-by-10 retained space. Its charge-basis cutoff remains `Nt_cut=60` in either
-case. The saved `accuracy` fields report results from the original calibration;
-they are metadata, not fidelities measured by this example.
+`make_model` includes each component Hamiltonian and adds the interaction. Here
+we retain four transmon and three resonator levels for a quick construction
+example. The transmon parent charge basis still uses the saved `Nt_cut=60`.
+The interaction uses charge coupled to `i(a-a†)`, matching the saved model.
 
-## Saved f0g1 transfer
+## 3. Attach a shaped drive
 
-The full retained space is needed to replay the saved sideband calibration.
-Starting in the dressed `|f,0⟩` state, apply the saved `sb_f0g1` gate and track
-the dressed `|g,1⟩` population:
+First reconstruct the envelope and carrier from one saved pulse record:
+
+```@example mode3
+envelope = saved_envelope(saved)
+drive = drive_pulse(saved)
+duration = Float64(saved["pulse_time"])
+gate = DeviceGate((; drive), param(:drive) * op(:q_charge), duration)
+model.gates[:sb_f0g1] = gate
+(; envelope_at_center=pulse_value(envelope, duration / 2, duration),
+   duration_ns=gate.duration)
+```
+
+A `DeviceGate` pairs parameter values with a symbolic drive Hamiltonian and a
+duration. `param(:drive)` reads the pulse stored under `drive`.
+`pulse_value(pulse, t, duration)` evaluates a pulse at a physical time.
+
+The carrier coefficient is
+
+```math
+h(t)=2\pi\epsilon\,e(t)\sin\!\left[2\pi(f_{\mathrm d}+\mathrm{shift})t\right].
+```
+
+`shift` is a frequency offset in GHz. The helper combines a unit-height envelope
+with this carrier using `GenericPulseFunction`; its callable receives the gate
+duration as `p.duration`. The saved Gaussian records use `gaussian_pulse`;
+their original `Guassian` spelling is retained in the JSON. The sideband uses
+`ramped_flattop_pulse` with a custom bump source and the saved ramp time.
+
+Inspect all the saved controls before evolving the system:
+
+```@example mode3
+plot_controls(controls)
+```
+
+The left panels show amplitude times envelope. The right panels show short
+carrier segments, with Hamiltonian coefficients divided by `2π`.
+
+## 4. Evolve the sideband transfer
+
+The saved sideband was calibrated in a 10-by-10 retained space. Use
+`make_mode3_model(controls)` to build that space and attach every saved control.
+Its dimension keywords let you choose smaller spaces for exploratory runs,
+but reproducing the saved transfer requires the full space.
 
 ```@example mode3
 full_model = make_mode3_model(controls)
-times, population = sideband_population(full_model; samples=201, abstol=1e-8, reltol=1e-8)
+gate = full_model.gates[:sb_f0g1]
+initial = full_model.states[(2, 0)]
+target = full_model.states[(0, 1)]
+times = range(0, gate.duration; length=201)
+result = sesolve(numerical(full_model, gate), initial, times;
+    progress_bar=false, abstol=1e-8, reltol=1e-8)
+@assert SciMLBase.successful_retcode(result.retcode)
+population = [abs2(dot(target, state)) for state in result.states]
 @assert last(population) > 0.99
+(; final_population=last(population), dressed_gap_GHz=real(sideband_gap(full_model)))
+```
+
+State labels are zero-based and follow the component order `[q, r]`:
+`(2, 0)` is `|f,0⟩`, and `(0, 1)` is `|g,1⟩`. `model.states` supplies dressed
+states. `numerical(model, gate)` combines the model and control into the
+Hamiltonian consumed by QuantumToolbox's `sesolve`. The squared overlap with
+the target gives its population at each sample time. The script's
+`sideband_population` helper wraps these same steps.
+
+```@example mode3
 transfer = Figure(size=(700, 380))
 ax = Axis(transfer[1, 1]; xlabel="Time (ns)", ylabel="|g,1⟩ population",
-    title="Saved f0g1 sideband")
+    title="f0g1 sideband transfer")
 lines!(ax, times, population; color=:purple, linewidth=3)
 ylims!(ax, 0, 1.05)
 transfer
 ```
 
-This is coherent evolution under the saved Hamiltonian and drive. The source
-save also lists damping parameters, but this replay does not apply dissipation
-or the other saved pulse sequences. The numerical population is separate from
-the save's `accuracy` field.
+You should obtain a final target population above 0.99. This is closed-system
+population transfer; the saved `accuracy` fields are metadata from the original
+calibration. This run does not apply the save's damping parameters, other
+sidebands, or chirp fit. The original controls came from a
+[SuperconductingCavitiesDemo](https://github.com/Gavin-Rockwood/SuperconductingCircuits.jl)
+simulation.

@@ -1,3 +1,11 @@
+# Tunable coupler control tutorial
+# Run from the repository root:
+#   julia --project=demo -e 'using Pkg; Pkg.instantiate()'
+#   julia --project=demo demo/tunable_coupler.jl [figure_directory]
+# With no directory argument, figures are saved to a new temporary directory.
+# Include this file instead to work through its helpers interactively; inclusion
+# defines the module without running the simulation or writing figures.
+
 module TunableCouplerDemo
 
 using CairoMakie
@@ -9,6 +17,7 @@ using SciMLBase
 export TARGET, SWAP_SETTINGS, QUARTER_SETTINGS, make_coupler_model,
        swap_gate, quarter_gate, plot_controls, swap_population
 
+# 1. Choose the circuit and pulse parameters.
 # Energies and drive frequencies are in cycles/ns; durations are in ns.
 const TARGET = (
     EC1=0.198, EC2=0.18, ECc=0.097,
@@ -29,6 +38,9 @@ const QUARTER_SETTINGS = (
     q2=(frequency=3.813857655541284, epsilon=0.019776450971418814,
         phase=-4.73026239790409, duration=11.010965386740736),
 )
+
+# 2. Construct three transmons and couple their charge operators.
+# Component names set the prefixes used in symbolic operators and parameters.
 
 """Build the three-mode transmon–transmon–coupler model from the supplied values."""
 function make_coupler_model(; params=TARGET, retained_levels=3, n_cutoff=60)
@@ -63,6 +75,9 @@ function make_coupler_model(; params=TARGET, retained_levels=3, n_cutoff=60)
     return model
 end
 
+# 3. Change existing model parameters with a flux gate. A zero additional
+# Hamiltonian is sufficient: q1_phi and c_phi already occur in the model.
+
 """Flux pulse labeled `SWAP` in the source, with linear ramps on q1 and coupler."""
 function swap_gate(; settings=SWAP_SETTINGS)
     T, ramp = settings.duration, settings.ramp
@@ -73,6 +88,9 @@ function swap_gate(; settings=SWAP_SETTINGS)
         ramp=:linear, start=ramp, stop=T-ramp)
     return DeviceGate((; q1_phi=q1_flux, c_phi=c_flux), 0, T)
 end
+
+# 4. Add microwave drives with a separate envelope and carrier. The gate
+# supplies p.duration; GenericPulseFunction stores only the other parameters.
 
 struct ChargeCarrier{E}
     envelope::E
@@ -96,6 +114,9 @@ function quarter_gate(qubit::Integer, axis::Symbol)
         settings.duration)
 end
 
+# 5. Evolve a dressed state and measure source and target populations.
+# State labels follow the component order [q1, q2, c] and are zero-based.
+
 """Return the dressed |100⟩ and |010⟩ populations under the saved flux pulse."""
 function swap_population(model; samples=121, abstol=1e-8, reltol=1e-8)
     gate = model.gates[:swap]
@@ -109,6 +130,8 @@ function swap_population(model; samples=121, abstol=1e-8, reltol=1e-8)
         [abs2(dot(source, state)) for state in result.states],
         [abs2(dot(target, state)) for state in result.states]
 end
+
+# 6. Inspect the flux excursions and microwave coefficients.
 
 """Plot the saved flux excursions and quarter-X/Y drive coefficients."""
 function plot_controls(model=make_coupler_model())
@@ -139,4 +162,28 @@ function plot_controls(model=make_coupler_model())
     return fig
 end
 
+"""Run the tutorial and save its two figures to `output_dir`."""
+function main(output_dir=mktempdir(; cleanup=false, prefix="coupler-tutorial-"))
+    mkpath(output_dir)
+    model = make_coupler_model()
+    CairoMakie.save(joinpath(output_dir, "controls.png"), plot_controls(model))
+
+    times, p100, p010 = swap_population(model)
+    fig = Figure(size=(700, 370))
+    ax = Axis(fig[1, 1]; xlabel="Time (ns)", ylabel="Dressed-state population",
+        title="Coupler flux pulse")
+    lines!(ax, times, p100; label="|100⟩", color=:royalblue, linewidth=2.5)
+    lines!(ax, times, p010; label="|010⟩", color=:purple, linewidth=2.5)
+    axislegend(ax; position=:rt)
+    ylims!(ax, 0, 1.05)
+    CairoMakie.save(joinpath(output_dir, "transfer.png"), fig)
+    println("Final |010⟩ population: ", last(p010))
+    println("Figures saved to ", abspath(output_dir))
+    return (; model, times, p100, p010)
+end
+
 end # module
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    isempty(ARGS) ? TunableCouplerDemo.main() : TunableCouplerDemo.main(only(ARGS))
+end
