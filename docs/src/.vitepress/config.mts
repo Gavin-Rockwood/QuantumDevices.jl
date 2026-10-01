@@ -16,6 +16,10 @@ export default defineConfig({
   outDir: 'REPLACE_ME_DOCUMENTER_VITEPRESS',
   // Documenter parses Markdown before VitePress; supply homepage metadata here.
   transformPageData(page) {
+    if (page.relativePath === 'version-unavailable.md') {
+      page.frontmatter = { ...page.frontmatter, sidebar: false, aside: false, prev: false, next: false }
+      return
+    }
     if (page.relativePath !== 'index.md') return
     page.frontmatter = {
       ...page.frontmatter,
