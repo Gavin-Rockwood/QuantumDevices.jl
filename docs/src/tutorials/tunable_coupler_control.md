@@ -2,9 +2,9 @@
 
 Build two data transmons and a flux-tunable coupler, define flux and microwave
 controls, and simulate excitation exchange between the qubits. This tutorial
-uses fixed circuit and pulse parameters from an existing simulation.
+uses fixed circuit and pulse parameters to demonstrate the package workflow.
 
-## 1. Set up the demo
+## 1. Set up the tutorial
 
 From the repository root, install the demo dependencies once:
 
@@ -14,7 +14,7 @@ julia --project=demo -e 'using Pkg; Pkg.instantiate()'
 
 Run the complete [Julia tutorial](https://github.com/Gavin-Rockwood/QuantumDevices.jl/blob/main/demo/tunable_coupler.jl)
 with `julia --project=demo demo/tunable_coupler.jl`. It prints the final target
-population and saves control and transfer figures in a temporary directory.
+population and saves a model bundle and two figures in a temporary directory.
 Pass a directory as the last argument to choose the output location. For an
 interactive session, start `julia --project=demo` and follow the steps below.
 
@@ -56,11 +56,10 @@ giving a 27-dimensional coupled space. Operators such as `n²` are projected
 from the parent basis before truncation. The helper also attaches one flux
 pulse and four microwave pulses.
 
-The original flux convention uses
-`EJ_eff(Φ) = EJ sqrt(cos(2πΦ)^2 + d^2 sin(2πΦ)^2)`.
-`make_tunable_transmon` uses `cos(π phi)`, so these controls set `phi = 2Φ`.
-Equal junction energies give the original `d=0`: each constructor receives
-`EJ1 = EJ2 = π EJ` in angular units.
+`make_tunable_transmon` takes the charging energy and the two junction
+energies in angular units. This model splits each total Josephson energy equally
+between the junctions. Its `phi` parameter is flux in units of the flux quantum;
+use that same parameter directly when defining controls.
 
 ## 3. Drive model parameters with flux pulses
 
@@ -70,9 +69,9 @@ Build the exchange pulse explicitly:
 ```@example coupler
 settings = SWAP_SETTINGS
 T, ramp = settings.duration, settings.ramp
-q1_flux = ramped_flattop_pulse(2 * settings.q1_flux, ramp;
+q1_flux = ramped_flattop_pulse(settings.q1_flux, ramp;
     ramp=:linear, stop=T)
-c_flux = ramped_flattop_pulse(2 * settings.coupler_flux, ramp;
+c_flux = ramped_flattop_pulse(settings.coupler_flux, ramp;
     ramp=:linear, start=ramp, stop=T-ramp)
 model.gates[:swap] = DeviceGate((; q1_phi=q1_flux, c_phi=c_flux), 0, T)
 model.gates[:swap].duration
@@ -106,15 +105,14 @@ h(t)=2\pi\epsilon\,e(t)\sin(2\pi\nu t+\varphi),
 and `DeviceGate((; drive), param(:drive) * op(:q1_charge), T)` attaches that
 coefficient to qubit 1. The callable receives the owning gate duration through
 `p.duration`. Choose qubit `2` or axis `:Y` to build the other controls. Their
-names describe the intended rotations from the original parameters; this
-tutorial does not recalibrate or verify those rotations.
+names describe the intended rotations; this tutorial does not recalibrate
+or verify those rotations.
 
 ```@example coupler
 plot_controls(model)
 ```
 
-The upper panel shows flux in the original `Φ` convention, dividing model
-`phi` by two. The lower panels show microwave coefficients divided by `2π`.
+The upper panel shows the `q1_phi` and `c_phi` controls in flux-quantum units. The lower panels show microwave coefficients divided by `2π`.
 
 ## 5. Simulate excitation exchange
 
@@ -151,7 +149,39 @@ transfer
 ```
 
 You should obtain a final `|010⟩` population above 0.99 in this closed-system
-simulation. The original pulse is labeled `SWAP`, but population transfer alone
-does not establish a full SWAP gate: phases and the action on the other
-computational states also matter. This tutorial measures transfer without
-adding dissipation or estimating a gate fidelity.
+simulation. The `:swap` gate transfers an excitation. Establishing a full SWAP
+gate also requires checking phases and the action on the other computational
+states. This tutorial measures transfer without adding dissipation or estimating
+a gate fidelity.
+
+## 6. Save and reload the model
+
+Save the instantiated model with its flux gate and four microwave gates:
+
+```@example coupler
+bundle_path = QuantumDevices.save(joinpath(mktempdir(), "tunable_coupler"), model)
+restored = QuantumDevices.load(bundle_path)
+@assert restored.H ≈ model.H
+@assert Set(keys(restored.gates)) == Set(keys(model.gates))
+@assert pulse_value(restored.gates[:quarter_x1].parameters.drive, x1.duration / 2, x1.duration) ≈
+    pulse_value(x1.parameters.drive, x1.duration / 2, x1.duration)
+println(join(sort(readdir(bundle_path)), ", "))
+```
+
+`QuantumDevices.save` creates a new directory and refuses an existing destination.
+The standalone demo writes `<output_directory>/model/` alongside `controls.png`
+and `transfer.png`, and prints the bundle path. All circuit and pulse parameters
+are defined directly in `demo/tunable_coupler.jl`.
+
+To reload in a fresh Julia session, include the module defining its charge-drive
+callable first:
+
+```julia
+using QuantumDevices
+include(joinpath(pkgdir(QuantumDevices), "demo", "tunable_coupler.jl"))
+restored = QuantumDevices.load("output_directory/model")
+```
+
+Including the file defines its module without running or saving the tutorial.
+See [Saving and loading model bundles](../user_guide/persistence.md) for the
+bundle layout.

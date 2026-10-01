@@ -53,7 +53,14 @@ export default defineConfig({
     nav: [
       { text: 'Start', link: '/getting_started/quickstart' },
       { text: 'Guide', link: '/user_guide/models' },
-      { text: 'Demos', link: '/demos/transmon_resonator_control' },
+      {
+        text: 'Tutorials',
+        activeMatch: '^/tutorials/',
+        items: [
+          { text: 'Transmon resonator control', link: '/tutorials/transmon_resonator_control' },
+          { text: 'Tunable coupler control', link: '/tutorials/tunable_coupler_control' },
+        ],
+      },
       { text: 'API', link: '/resources/api' },
       { text: 'Development', link: '/development/extensions' },
       { component: 'VersionPicker' },

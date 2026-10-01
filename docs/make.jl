@@ -40,9 +40,9 @@ const PAGES = [
         "State tracking" => "user_guide/tracking.md",
         "Persistence" => "user_guide/persistence.md",
     ],
-    "Demos" => [
-        "Transmon resonator control" => "demos/transmon_resonator_control.md",
-        "Tunable coupler control" => "demos/tunable_coupler_control.md",
+    "Tutorials" => [
+        "Transmon resonator control" => "tutorials/transmon_resonator_control.md",
+        "Tunable coupler control" => "tutorials/tunable_coupler_control.md",
     ],
     "Technical explanations" => [
         "Conventions and metrics" => "explanations/conventions.md",
