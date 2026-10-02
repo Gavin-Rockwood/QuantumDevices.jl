@@ -1,7 +1,7 @@
 # Your first model and gate
 
 This example constructs two ideal qubits, evaluates a shaped drive, and evolves a
-state. The chosen coefficients and time are dimensionless consistent units.
+state. The coefficients are in GHz (cycles/ns), and time is in ns.
 
 ```@example quickstart
 using QuantumDevices, QuantumToolbox, LinearAlgebra
@@ -16,7 +16,7 @@ The model operator names are prefixed with component names. The interaction
 couples their Pauli X operators. The component order is `q1 ⊗ q2`.
 
 ```@example quickstart
-pulse = ramped_flattop_pulse(0.1, 0.2)
+pulse = Pulse(RampedFlattop(0.2); amplitude=0.1, duration=1.0)
 gate = DeviceGate((; drive=pulse), param(:drive) * op(:q1_x), 1.0)
 H = numerical(model, gate)
 @assert H(0.5) ≈ model.H + 0.1 * model.operators.q1_x
@@ -28,7 +28,7 @@ to be resonant: this is an example of building a control, not an X-gate calibrat
 
 ```@example quickstart
 ψ0 = tensor(basis(2, 0), basis(2, 0))
-solution = sesolve(H, ψ0, range(0, 1; length=21); progress_bar=false)
+solution = sesolve(2pi * H, ψ0, range(0, 1; length=21); progress_bar=false)
 @assert isapprox(norm(solution.states[end]), 1; atol=1e-6)
 length(solution.states)
 ```

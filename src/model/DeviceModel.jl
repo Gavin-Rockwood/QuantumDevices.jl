@@ -4,6 +4,8 @@
 Coupled device built by [`make_model`](@ref). Exposes `components`,
 `coupling_parameters`, symbolic `hamiltonian`, embedded `operators`, merged
 `parameters`, sparse idle Hamiltonian `H`, `truncation_dimensions`, and `gates`.
+Hamiltonians and dimensional energy parameters use frequency units (`E/h`,
+cycles per unit time); `numerical` does not multiply them by `2π`.
 `states`, `others`, and `confidence` forward to its dressed-state tracking result.
 
 Use [`make_model`](@ref) rather than the positional field constructor. Derived

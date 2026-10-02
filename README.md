@@ -26,13 +26,16 @@ From a checkout, activate the root environment with `julia --project=.` and run
 using QuantumDevices
 q = make_qubit("q", 1.0)
 model = make_model([q], val(0), (;))
-gate = DeviceGate((drive=ramped_flattop_pulse(0.1, 0.2),),
+gate = DeviceGate((drive=Pulse(RampedFlattop(0.2); amplitude=0.1, duration=1.0),),
                   param(:drive) * op(:q_x), 1.0)
 H = numerical(model, gate)
 H(0.5)
 ```
 
-Hamiltonian coefficients use energy/ℏ units reciprocal to simulation time.
+Hamiltonians and energy parameters use frequency units (`E/h`, cycles per unit
+time): GHz for time in ns. `numerical` preserves these units. `get_unitary`
+applies `2π` at the solver call; direct QuantumToolbox `sesolve` or `mesolve`
+calls must use `2π * H`.
 The current API replaces the old Circuits/Dynamics modules; start with the
 [package overview](https://gavin-rockwood.github.io/QuantumDevices.jl/dev/getting_started/overview)
 when upgrading existing code.

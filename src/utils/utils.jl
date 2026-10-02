@@ -3,3 +3,5 @@ include("getpath.jl")
 include("setpath.jl")
 include("operators/operators.jl")
 include("tracking/tracking.jl")
+
+include("metrics/metrics.jl")

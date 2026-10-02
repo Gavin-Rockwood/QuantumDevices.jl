@@ -1,4 +1,4 @@
 module DocsPulseDefinitions
 struct SineLobe end
-(::SineLobe)(p, t) = p.amplitude * sinpi(t / p.duration)^2
+(::SineLobe)(p, t, duration) = sinpi(t / duration)^2
 end

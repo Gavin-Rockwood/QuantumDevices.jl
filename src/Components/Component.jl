@@ -19,22 +19,3 @@ end
 # Each built-in component registers its keyword constructor. Stored parameters
 # can then be splatted into it without depending on their serialized order.
 const COMPONENT_CONSTRUCTORS = Dict{String,Function}()
-
-function _replace_property(component::Component, key::Symbol, value)
-    key in (:name, :parameters, :dimension) ||
-        throw(ArgumentError("Component.$key is derived or unknown"))
-    name = key === :name ? value : component.name
-    p = key === :parameters ? value : component.parameters
-    dimension = key === :dimension ? value : component.dimension
-    constructor = get(COMPONENT_CONSTRUCTORS, component.type, nothing)
-    constructor === nothing &&
-        return Component(name, p, component.operators, component.hamiltonian, component.type, dimension)
-    rebuilt = constructor(; name, dimension, p...)
-    for parameter in keys(p)
-        if p[parameter] != component.parameters[parameter] &&
-                p[parameter] != rebuilt.parameters[parameter]
-            throw(ArgumentError("$parameter is derived from physical parameters"))
-        end
-    end
-    return rebuilt
-end

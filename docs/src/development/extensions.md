@@ -21,78 +21,75 @@ model = make_model([custom], val(0), (;))
 model.parameters.custom_gap
 ```
 
-## Parameterized controls
+## Custom envelopes and carriers
 
-The simplest extension is `GenericPulseFunction(f, parameters)`, with `f(p,t)`.
-`p.duration` comes from the owning gate and must not be stored in the parameters.
+Use `Envelope(f, parameters)` for a custom dimensionless `f(p, t, duration)`
+shape. Time is relative to pulse onset. Amplitude, baseline, and timing belong
+to the enclosing `Pulse`.
 
 ```@example extensions
-pulse = GenericPulseFunction((p,t) -> p.amplitude * sinpi(t/p.duration)^2,
-                             (; amplitude=0.2))
-@assert pulse(0.5, 1.0) ≈ 0.2
-parameters(pulse)["amplitude"]
+shape = Envelope((p,t,duration) -> p.scale * sinpi(t/duration)^2, (; scale=1.0))
+pulse = Pulse(shape; amplitude=0.2, duration=1.0)
+@assert pulse(0.5) ≈ 0.2
+parameters(pulse)["envelope/scale"]
 ```
 
-This closure is suitable for interactive use. For persistence, define the callable
-in a module as shown in the [fresh-process example](../user_guide/persistence.md).
+`Carrier(f, parameters; reference=:pulse)` accepts `f(p,t)` and chooses a pulse
+or gate clock. Its named parameters are also discoverable. Interactive closures
+work in memory; persistent custom callables need their defining code available
+when loading. Built-in shapes and carriers require no user-defined module.
 
-## Custom pulse subtypes
+## Custom envelope subtypes
 
-```@example custompulse
+```@example customenvelope
 using QuantumDevices
-struct LevelPulse <: AbstractPulse
+struct LevelEnvelope <: AbstractEnvelope
     value::Float64
 end
-QuantumDevices.pulse_value(pulse::LevelPulse, t, duration) = pulse.value
-QuantumDevices.parameters(pulse::LevelPulse) =
-    Dict{String,Tuple}("value" => ("value", pulse.value))
-pulse = LevelPulse(0.2)
-updated = setpath(pulse, "value", 0.4)
-@assert pulse(0.0, 1.0) == 0.2
-updated(0.0, 1.0)
+QuantumDevices.envelope_value(shape::LevelEnvelope, t, duration) = shape.value
+pulse = Pulse(LevelEnvelope(0.2); duration=1.0)
+updated = setpath(pulse, "envelope/value", 0.4)
+@assert pulse(0.0) == 0.2
+updated(0.0)
 ```
 
-The gate boundary verifies scalar values. A custom subtype may specialize
-`QuantumDevices.validate_pulse(pulse, duration)` to check its domain and parameters;
-that hook is qualified and is not exported. Parameter discovery must provide
-paths that `getpath` resolves and `setpath` can reconstruct. The default structural
-reconstruction uses the outer constructor; custom computed fields may need a
-qualified `_replace_property` specialization.
+Custom subtypes implement `envelope_value(shape, local_time, duration)`, and may
+specialize `validate_envelope(shape, duration)`. Structural fields are discovered
+recursively. Custom carrier subtypes implement
+`carrier_value(carrier, local_time, gate_time)`. Pulse evaluation requires finite
+scalar values. The default immutable reconstruction calls the positional outer
+constructor; computed fields may need a qualified `_replace_property` overload.
 
 ## Calibration objectives
 
-Pass `objective(model, candidate_gate, target)` to `calibration_problem`.
+Pass `objective(model, candidate_gate, target)` to `CalibrationProblem`.
 Define the full loss, subspace treatment, and leakage penalty explicitly. The
 wrapper only discovers selected finite real parameters and reconstructs gates;
 it does not choose optimizer algorithms, gradients, bounds policy, or noise metrics.
 
 ## Persistence hooks
 
-Qualified internal hooks `QuantumDevices._pulse_record(pulse, directory, index)`
-and `QuantumDevices._restore_pulse(::Val{:tag}, data, directory)` add pulse formats.
-The record must contain a unique `"type"` tag; place artifacts inside the supplied
-directory and use controlled relative filenames. These hooks are internal extension
-points and may change with the bundle format. They are not a source-evaluation API.
-Custom components use the existing component artifact path; supported symbolic
-functions and parameter value types still constrain their records.
+Qualified internal hooks `QuantumDevices._control_record(control, directory, index)`
+and `QuantumDevices._restore_control(::Val{:tag}, data, directory)` add envelope,
+carrier, or pulse formats. Use a unique type tag and controlled local artifact
+filenames. Load extension definitions before restoring their records.
 
-Here is a minimal JSON-only format for the `LevelPulse` defined above. In a real
-extension, use a tag unique to your package and load these method definitions
-before restoring the bundle.
-
-```@example custompulse
-QuantumDevices._pulse_record(pulse::LevelPulse, directory, index) =
-    Dict("type" => "level_demo", "value" => pulse.value)
-QuantumDevices._restore_pulse(::Val{:level_demo}, data, directory) =
-    LevelPulse(Float64(data["value"]))
+```@example customenvelope
+QuantumDevices._control_record(shape::LevelEnvelope, directory, index) =
+    Dict("type" => "level_demo", "value" => shape.value)
+QuantumDevices._restore_control(::Val{:level_demo}, data, directory) =
+    LevelEnvelope(Float64(data["value"]))
 model = make_model([make_qubit("q", 0.0)], val(0), (;))
-model.gates[:level] = DeviceGate((; drive=LevelPulse(0.2)),
-                                param(:drive) * op(:q_x), 1.0)
+model.gates[:level] = DeviceGate((; drive=pulse), param(:drive) * op(:q_x))
 mktempdir() do directory
     path = save(joinpath(directory, "device"), model)
     restored = load(path)
-    @assert restored.gates[:level].parameters.drive isa LevelPulse
-    @assert pulse_value(restored.gates[:level].parameters.drive, 0.5, 1.0) == 0.2
-    println("Custom pulse format restored")
+    @assert restored.gates[:level].parameters.drive.envelope isa LevelEnvelope
+    @assert restored.gates[:level].parameters.drive(0.5) == 0.2
+    println("Custom envelope format restored")
 end
 ```
+
+These hooks are internal extension points and may change with the bundle format.
+They never evaluate stored source. Component persistence and symbolic-operation
+allowlists continue to apply independently.

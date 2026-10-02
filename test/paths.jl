@@ -47,7 +47,7 @@ end
     @test setpath!(box, "amplitude", 3.0) === box
     @test box.parameters.amplitude == 3.0
 
-    gate = DeviceGate((drive = constant_pulse(0.4),), param(:drive) * op(:q_x), 1.0)
+    gate = DeviceGate((drive = Pulse(Constant(); amplitude=0.4, duration=1.0),), param(:drive) * op(:q_x), 1.0)
     container = Dict("gate" => gate)
     @test setpath!(container, "gate/drive/amplitude", 0.8) === container
     @test getpath(container, "gate/drive/amplitude") == 0.8

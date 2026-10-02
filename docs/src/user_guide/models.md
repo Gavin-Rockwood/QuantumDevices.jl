@@ -40,6 +40,16 @@ Consequently, `numerical` of `op(:t_charge)^2` can differ from squaring
 `model.operators.t_charge`. Use symbolic gate/model expressions when the distinction
 matters. See [projection](../explanations/projection.md).
 
+Use `numerical(model, expression)` to evaluate a symbolic expression with the
+model's parameters and projection rules:
+
+```@example models
+H = numerical(model, model.hamiltonian)
+@assert H ≈ model.H
+charge_squared = numerical(model, op(:t_charge)^2)
+size(charge_squared)
+```
+
 ## Changing inputs
 
 ```@example models

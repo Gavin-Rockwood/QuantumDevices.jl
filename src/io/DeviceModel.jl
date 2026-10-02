@@ -4,6 +4,8 @@
 Save a model and its gates to a new directory. Component and interaction values
 live in `parameters.json`; gate records live in `gates/`. Existing paths are never
 replaced. Generic pulse artifacts require their callable definitions when loaded.
+`model.json` records the saving package's release as `quantumdevices_version`;
+`schema_version` independently identifies the bundle format.
 """
 function save(path::AbstractString, model::DeviceModel)
     destination = abspath(path)
@@ -33,6 +35,7 @@ function _save_model(directory, model::DeviceModel)
         Dict("key" => _encode_value(key), "directory" => folder)
     end
     _write_json(joinpath(directory, "model.json"), Dict("schema_version" => 1, "type" => "model",
+        "quantumdevices_version" => string(Base.pkgversion(QuantumDevices)),
         "components" => components, "interactions" => _expression_record(model.interactions),
         "max_dimension" => model.max_dimension, "gates" => gates,
         "truncation_dimensions" => Dict(c.name => d for (c, d) in model.truncation_dimensions)))
@@ -45,6 +48,8 @@ Load the model bundle directory at `path` and return a [`DeviceModel`](@ref).
 Reconstruct component bases, promoted operators, the idle Hamiltonian, and dressed
 states; then restore named gates, preserving string versus symbol gate keys.
 Requires `model.json`, `parameters.json`, and all referenced artifacts.
+The recorded `quantumdevices_version` is informational: older bundles without it
+and bundles written by another release load when their schema is supported.
 
 Unsupported schema tags, stored values, or symbolic operations throw. Generic
 pulse callable definitions must be available in the process before loading.

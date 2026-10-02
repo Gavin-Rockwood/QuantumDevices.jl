@@ -22,6 +22,15 @@ ft = make_tunable_transmon("ft", 0.2, 5.0, 4.0, 9; phi=0.2)
 | Transmon | `EC`, `EJ`, `ng` | `jump`, `charge` | Energy basis obtained from a finite charge basis |
 | Tunable transmon | `EC`, `EJ1`, `EJ2`, `ng`, `phi`; derived `EJmax`, `d` | `jump`, `charge` | Initial energy basis at the construction flux |
 
+Use `numerical(component, expression)` with the component's local operator names:
+
+```@example components
+H = numerical(t, t.hamiltonian)
+charge = numerical(t, op(:charge))
+@assert charge ≈ t.operators.charge
+size(H)
+```
+
 ## Parent dimensions and convergence
 
 Resonator dimensions must be positive integers. Increase the Fock cutoff until

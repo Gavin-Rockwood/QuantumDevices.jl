@@ -2,23 +2,27 @@
 
 ## Hamiltonian units
 
+All Hamiltonians and dimensional energy parameters use frequency units, `E/h`,
+in **cycles per unit time**, not angular frequency. With time in ns, use GHz.
 The evolution convention is
 
 ```math
-\frac{d}{dt}|\psi\rangle=-iH(t)|\psi\rangle,\qquad \hbar=1.
+\frac{d}{dt}|\psi\rangle=-2\pi iH(t)|\psi\rangle.
 ```
 
-Hamiltonian coefficients therefore have units inverse to time. For time in ns,
-an energy coefficient quoted as a frequency in GHz becomes `2π * frequency` in
-rad/ns. The package does not apply that conversion implicitly.
+Pass frequencies directly to component constructors and gate coefficients.
+`numerical` preserves frequency units, including the model's dressed eigenvalues.
+`get_unitary` explicitly supplies `2π * H` to QuantumToolbox. When calling
+QuantumToolbox `sesolve` or `mesolve` directly, supply `2π * H` yourself;
+do not also multiply constructor inputs or drive amplitudes by `2π`.
 
-`make_qubit(name, ν)` uses `H=ν Z/2`; its splitting is `|ν|` in angular-frequency
-units. The first Pauli basis vector has Z eigenvalue +1. For positive `ν`, it is
+`make_qubit(name, ν)` uses `H=ν Z/2`; its splitting is `|ν|` in cycles per time.
+The first Pauli basis vector has Z eigenvalue +1. For positive `ν`, it is
 not the lower-energy state. Energy-level product labels are determined by local
 energy ordering and must not be substituted for computational basis indices.
 
-`sine_pulse` uses `sin(2π*f*t + phase)`, with `f` in cycles/time and phase in radians.
-`sine_squared_pulse` squares this sine, so its waveform repeats at twice `f`.
+`SineCarrier` uses `sin(2π*f*t + phase)`, with `f` in cycles/time and phase in radians.
+Its clock defaults to pulse-local time. `SineSquared()` is a single envelope lobe over the pulse duration.
 For flux-tunable transmons, `phi` is flux divided by the flux quantum and `ng` is
 charge offset in the constructor's Cooper-pair convention.
 
@@ -40,7 +44,8 @@ For target and realized unitaries on a d-dimensional retained space,
 1-F_{\mathrm{avg}}=\frac{d}{d+1}(1-F_{\mathrm{pro}}).
 ```
 
-`unitary_infidelity` implements the first metric and clamps it to `[0,1]`.
+`unitary_fidelity` returns `F_pro`; `unitary_infidelity` returns `1-F_pro`,
+with results clamped to `[0,1]`.
 It checks target unitarity, not actual unitarity. Validate solver accuracy and
 unitarity when interpreting very small errors. The formula is phase insensitive.
 It compares the complete retained space, not one state transfer and not a projected

@@ -93,20 +93,6 @@ end
 build_qobjevo(H, fixed_params::Container, operators::Container) =
     QobjEvo(tuple(qobjevo_terms(H, fixed_params, operators)...))
 
-"""
-    numerical(H::Sym, operators[, params])
-
-Evaluate a symbolic expression. Complete scalar parameters produce a static result;
-missing or function-valued parameters produce a `QobjEvo`, callable as `(params, t)`.
-Function-valued parameters receive time as their single argument.
-"""
-function numerical(H::Sym, operators::Container, params::Container)
-    required = parameter_keys(H)
-    dynamic = any(k -> !_has(params, k) || _get(params, k) isa Function, required)
-    return dynamic ? build_qobjevo(H, params, operators) : numerical_static(H, params, operators)
-end
-numerical(H::Sym, operators::Container) = build_qobjevo(H, NamedTuple(), operators)
-
 function _evaluate_terms(terms, params::Container)
     dynamic = any(terms) do (_, coefficient)
         any(k -> !_has(params, k) || _get(params, k) isa Function, parameter_keys(coefficient))

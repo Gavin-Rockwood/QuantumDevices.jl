@@ -7,7 +7,8 @@ charge basis has `dimension = 2ncut + 1`; dimension must be a positive odd integ
 The returned `charge` and `jump` operators are expressed in the eigenbasis of
 the construction Hamiltonian. Model truncation then retains its first levels.
 
-`EC` and `EJ` use consistent energy/ℏ units; `ng` is dimensionless offset charge.
+`EC` and `EJ` are energies divided by h, in cycles per unit time
+(e.g. GHz for time in ns); evolution uses `2π * H`. `ng` is dimensionless offset charge.
 `hermcheck` controls symmetrization of transformed operators and warnings, not
 physical convergence. Increase the parent charge cutoff to check convergence.
 """

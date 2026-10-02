@@ -2,23 +2,33 @@
     AbstractCalibrationSetup
 
 Abstract interface for calibration setup objects. The built-in implementation
-[`SciMLCalibrationSetup`](@ref) exposes a standard SciML optimization problem and
+[`CalibrationProblem`](@ref) exposes a standard SciML optimization problem and
 a callable that reconstructs gates from candidate values.
 """
 abstract type AbstractCalibrationSetup end
 
 """
-    SciMLCalibrationSetup(problem, rebuild)
+    CalibrationProblem(problem, rebuild)
+    CalibrationProblem(model, gate, names, target; objective=gate_infidelity, kwargs...)
 
-Calibration result setup containing a standard `SciMLBase.OptimizationProblem`
-and `rebuild(values) -> DeviceGate`. Construct it with [`calibration_problem`](@ref),
-then call [`calibrate`](@ref) or `SciMLBase.solve(setup.problem, algorithm)`.
+Calibration problem containing a standard `SciMLBase.OptimizationProblem`
+and `rebuild(values) -> DeviceGate`. Select parameters with
+`CalibrationProblem(model, gate, names, target; kwargs...)`, then call
+`solve(problem, algorithm; kwargs...)`. This forwards directly to SciML and returns its optimization solution unchanged. Reconstruct the gate with
+[`calibrated_gate`](@ref).
 Algorithm choice and solver options remain the caller's responsibility.
 """
-struct SciMLCalibrationSetup{P,F} <: AbstractCalibrationSetup
+struct CalibrationProblem{P,F} <: AbstractCalibrationSetup
     problem::P
     rebuild::F
 end
+
+"""
+    SciMLCalibrationSetup
+
+Compatibility alias for [`CalibrationProblem`](@ref).
+"""
+const SciMLCalibrationSetup = CalibrationProblem
 
 """
     parameters(object)
@@ -38,29 +48,6 @@ end
 # Explicitly traverse .parameters when a parameter shadows a structure field.
 _parameter_path(object, key) = hasfield(typeof(object), key) ?
     "parameters/$(key)" : String(key)
-
-parameters(pulse::AbstractParameterizedPulse) = Dict{String,Tuple}(
-    _parameter_name(name) => (_parameter_path(pulse, name), value)
-    for (name, value) in pairs(pulse.parameters))
-parameters(::AbstractPulse) = Dict{String,Tuple}()
-
-function parameters(gate::DeviceGate)
-    result = Dict{String,Tuple}()
-    for (name, value) in pairs(gate.parameters)
-        name_string = _parameter_name(name)
-        path = _parameter_path(gate, name)
-        if value isa AbstractPulse
-            for (pulse_name, (pulse_path, pulse_value)) in parameters(value)
-                full_path = "$path/$pulse_path"
-                haspath(gate, full_path) || throw(ArgumentError("Gate does not have path $full_path"))
-                result["$name_string/$pulse_name"] = (full_path, pulse_value)
-            end
-        else
-            result[name_string] = (path, value)
-        end
-    end
-    return result
-end
 
 # Kept as a discovery alias; public calibration paths are now strings.
 """
@@ -97,87 +84,21 @@ function _with_calibration_values(gate::DeviceGate, paths, values)
     end
 end
 
-_operator_matrix(operator::AbstractMatrix) = Matrix(operator)
-_operator_matrix(operator::AbstractQuantumObject) = Matrix(operator.data)
-_operator_matrix(operator) =
-    throw(ArgumentError("Expected a matrix or quantum operator, received $(typeof(operator))"))
-
 """
-    unitary_infidelity(target, actual)
+    CalibrationProblem(model, gate, names, target; objective=gate_infidelity, kwargs...)
 
-Return `clamp(1 - abs2(tr(target' * actual))/d^2, 0, 1)` for equal square matrices
-or quantum operators. The target must be unitary (tolerance `1e-8`). This is a
-phase-insensitive process infidelity for unitary evolution; `actual` is not
-independently checked for unitarity. It is not a state-transfer fidelity or a
-noise-channel metric. For two unitaries, average gate infidelity is `d/(d+1)`
-times this result.
-"""
-function unitary_infidelity(target, actual)
-    target_matrix = _operator_matrix(target)
-    actual_matrix = _operator_matrix(actual)
-    size(target_matrix) == size(actual_matrix) || throw(DimensionMismatch(
-        "Target size $(size(target_matrix)) does not match actual size $(size(actual_matrix))",
-    ))
-    size(target_matrix, 1) == size(target_matrix, 2) ||
-        throw(DimensionMismatch("Unitary matrices must be square"))
-    dimension = size(target_matrix, 1)
-    identity = Matrix{eltype(target_matrix)}(I, dimension, dimension)
-    isapprox(target_matrix' * target_matrix, identity; atol = 1e-8, rtol = 1e-8) ||
-        throw(ArgumentError("Calibration target must be unitary"))
-    return Float64(clamp(
-        real(1 - abs2(tr(target_matrix' * actual_matrix)) / dimension^2),
-        0,
-        1,
-    ))
-end
-
-"""
-    gate_unitary(model::DeviceModel, gate::DeviceGate; kwargs...)
-
-Evolve the identity over `[0, gate.duration]` with QuantumToolbox `sesolve` and
-return the final retained-space propagator. Duration must be positive. Solver
-kwargs pass through, with `progress_bar=false` by default; unsuccessful retcodes
-raise an error. Units must obey the package's ℏ=1 Hamiltonian convention.
-"""
-function gate_unitary(model::DeviceModel, gate::DeviceGate; kwargs...)
-    gate.duration > 0 || throw(ArgumentError("Gate evolution requires a positive duration"))
-    options = merge((; progress_bar = false), (; kwargs...))
-    solution = sesolve(
-        numerical(model, gate),
-        qeye_like(model.H),
-        [zero(gate.duration), gate.duration];
-        options...,
-    )
-    SciMLBase.successful_retcode(solution.retcode) ||
-        error("Gate evolution failed with return code $(solution.retcode)")
-    return solution.states[end]
-end
-
-"""
-    gate_infidelity(model::DeviceModel, gate::DeviceGate, target)
-
-Evaluate [`unitary_infidelity`](@ref) between `target` and
-[`gate_unitary`](@ref). The target acts on the full retained model space.
-This is the default calibration objective, not a computational-subspace
-leakage metric or open-system fidelity.
-"""
-gate_infidelity(model::DeviceModel, gate::DeviceGate, target) =
-    unitary_infidelity(target, gate_unitary(model, gate))
-
-"""
-    calibration_problem(model, gate, names, target; objective=gate_infidelity, kwargs...)
-
-Build a standard `SciMLBase.OptimizationProblem` and an immutable gate rebuilder.
+Build a [`CalibrationProblem`](@ref) wrapping a standard
+`SciMLBase.OptimizationProblem` and an immutable gate rebuilder.
 Select parameters using names from `parameters(gate)`, e.g. `["drive/amplitude"]`.
 Additional keyword arguments (including `lb` and `ub`) are forwarded to
 `OptimizationProblem`. The objective has signature `(model, candidate_gate, target)`
 and must return a scalar loss. The default compares full retained-space unitaries.
 
 Selected names must be a nonempty collection of unique discovery names with finite
-real values. Returns a [`SciMLCalibrationSetup`](@ref) without modifying the input
-gate. Algorithm selection and solver kwargs belong to [`calibrate`](@ref).
+real values. The input gate is unchanged. Solve with
+`solve(problem, algorithm; kwargs...)`; solver options are forwarded to SciML.
 """
-function calibration_problem(model::DeviceModel, gate::DeviceGate, names, target;
+function CalibrationProblem(model::DeviceModel, gate::DeviceGate, names, target;
                              objective = gate_infidelity, kwargs...)
     names isa AbstractString && throw(ArgumentError("Pass a list of parameter names, such as [\"drive/amplitude\"]"))
     names = collect(names)
@@ -187,16 +108,25 @@ function calibration_problem(model::DeviceModel, gate::DeviceGate, names, target
     rebuild = values -> _with_calibration_values(gate, paths, values)
     loss(values, _) = objective(model, rebuild(values), target)
     problem = SciMLBase.OptimizationProblem(loss, initial_values; kwargs...)
-    return SciMLCalibrationSetup(problem, rebuild)
+    return CalibrationProblem(problem, rebuild)
 end
 
 """
-    calibrated_gate(setup::SciMLCalibrationSetup, values)
+    calibration_problem(model, gate, names, target; kwargs...)
+
+Compatibility constructor for [`CalibrationProblem`](@ref). All arguments and
+keywords are passed to that constructor unchanged.
+"""
+calibration_problem(model::DeviceModel, gate::DeviceGate, names, target; kwargs...) =
+    CalibrationProblem(model, gate, names, target; kwargs...)
+
+"""
+    calibrated_gate(problem::CalibrationProblem, values)
 
 Reconstruct a gate from candidate parameter values in the selected order without
-modifying the original gate. The vector length must match the calibration setup.
+modifying the original gate. The vector length must match the calibration problem.
 """
-calibrated_gate(setup::SciMLCalibrationSetup, values) = setup.rebuild(values)
+calibrated_gate(problem::CalibrationProblem, values) = problem.rebuild(values)
 
 """
     calibrate(setup, algorithm; kwargs...)
@@ -206,9 +136,10 @@ All keyword arguments are forwarded directly to `SciMLBase.solve`.
 Returns `(solution, gate)` with the candidate reconstructed from `solution.u`.
 Inspect the solution retcode and objective before accepting the result; this wrapper
 does not independently enforce optimization convergence. The original gate is
-unchanged. For direct solve access use `setup.problem` and [`calibrated_gate`](@ref).
+unchanged. Prefer `solution = solve(problem, algorithm; kwargs...)` followed by
+`calibrated_gate(problem, solution.u)`. This function is retained for compatibility.
 """
-function calibrate(setup::SciMLCalibrationSetup, algorithm; kwargs...)
-    solution = SciMLBase.solve(setup.problem, algorithm; kwargs...)
+function calibrate(setup::CalibrationProblem, algorithm; kwargs...)
+    solution = SciMLBase.solve(setup, algorithm; kwargs...)
     return solution, calibrated_gate(setup, solution.u)
 end

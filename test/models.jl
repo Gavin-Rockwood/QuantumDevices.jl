@@ -4,6 +4,12 @@
     model = make_model([a, b], interaction, (g = 0.03,))
     direct = 0.5 * tensor(sigmaz(), qeye(2)) + 0.85 * tensor(qeye(2), sigmaz()) + 0.03 * tensor(sigmax(), sigmax())
     @test model.H ≈ direct
+    @test numerical(model, model.hamiltonian) ≈ direct
+    @test numerical(model, op(:a_x)) ≈ tensor(sigmax(), qeye(2))
+    @test numerical(model, interaction) ≈ 0.03 * tensor(sigmax(), sigmax())
+    @test numerical(model, param(:drive) * op(:a_x))((drive=0.2,), 0.0) ≈
+        0.2 * tensor(sigmax(), qeye(2))
+    @test_throws ArgumentError numerical(model, op(:missing))
     @test model.coupling_parameters == (g = 0.03,)
     @test model.max_dimension == 10^4
     @test model.states === model.eigensystem.states
@@ -69,9 +75,13 @@
     @test remapped.H ≈ fresh_remapped.H
     full = make_model([c], 0 * op(:c_charge), (;); truncation_dimensions = Dict(c => 3))
     @test full.H ≈ reduced
+    @test numerical(full, full.hamiltonian) ≈ full.H
+    @test numerical(full, op(:c_charge)^2) ≈ QD.truncate(c.operators.charge^2, P)
     naive = numerical(full.hamiltonian, full.operators, full.parameters)
     @test norm(full.H - naive) > 1e-4
     word_model = make_model([c, b], 0.07 * op(:c_charge) * op(:b_x) * op(:c_charge), (;);
         truncation_dimensions = Dict(c => 3))
     @test word_model.H ≈ mix.H + 0.07 * tensor(QD.truncate(c.operators.charge^2, P), sigmax())
+    @test numerical(word_model, word_model.interactions) ≈
+        0.07 * tensor(QD.truncate(c.operators.charge^2, P), sigmax())
 end

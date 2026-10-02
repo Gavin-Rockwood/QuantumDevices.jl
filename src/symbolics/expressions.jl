@@ -55,33 +55,3 @@ compiler; general functions are intended for scalar coefficients. Persistence
 supports only its explicit built-in operation allowlist, not arbitrary functions.
 """
 call(f, args...) = Sym((:call, f, map(_symbolic_argument, args)...))
-
-# ============================================================
-# Arithmetic
-# ============================================================
-
-Base.:+(a::Sym, b::Sym) = call(+, a, b)
-Base.:+(a::Sym, b) = call(+, a, b)
-Base.:+(a, b::Sym) = call(+, a, b)
-
-Base.:-(a::Sym, b::Sym) = call(-, a, b)
-Base.:-(a::Sym, b) = call(-, a, b)
-Base.:-(a, b::Sym) = call(-, a, b)
-Base.:-(a::Sym) = call(-, a)
-
-Base.:*(a::Sym, b::Sym) = call(*, a, b)
-Base.:*(a::Sym, b) = call(*, a, b)
-Base.:*(a, b::Sym) = call(*, a, b)
-
-Base.:/(a::Sym, b::Sym) = call(/, a, b)
-Base.:/(a::Sym, b) = call(/, a, b)
-Base.:/(a, b::Sym) = call(/, a, b)
-
-Base.:^(a::Sym, b) = call(^, a, b)
-Base.:^(a::Number, b::Sym) = call(^, a, b)
-Base.literal_pow(::typeof(^), a::Sym, ::Val{n}) where {n} = call(^, a, n)
-
-Base.sin(a::Sym) = call(sin, a)
-Base.cos(a::Sym) = call(cos, a)
-Base.exp(a::Sym) = call(exp, a)
-Base.sqrt(a::Sym) = call(sqrt, a)

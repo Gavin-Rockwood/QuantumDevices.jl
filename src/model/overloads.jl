@@ -1,3 +1,19 @@
+"""
+    numerical(model::DeviceModel, expression::Sym)
+
+Evaluate a symbolic expression using the model's component operators, retained
+dimensions, and merged parameters. Operator names use the model's promoted names
+(for example, `op(:q_charge)`). Complete operator products are multiplied before
+projection, following the same rules as [`make_model`](@ref).
+
+For example, `numerical(model, model.hamiltonian)` reproduces `model.H`.
+Unresolved parameters produce a `QobjEvo`, as with the other symbolic overloads.
+"""
+function numerical(model::DeviceModel, expression::Sym)
+    dims = [get(model.truncation_dimensions, c, c.dimension) for c in model.components]
+    return _evaluate_terms(_projected_terms(expression, model.components, dims), model.parameters)
+end
+
 function Base.getproperty(model::DeviceModel, id::Symbol)
     hasfield(DeviceModel, id) && return getfield(model, id)
     hasfield(TrackingResult, id) && return getproperty(getfield(model, :eigensystem), id)
@@ -34,4 +50,22 @@ function _replace_property(model::DeviceModel, key::Symbol, value)
         truncation_dimensions = truncations)
     merge!(result.gates, model.gates)
     return result
+end
+
+function Base.show(io::IO, model::DeviceModel)
+    print(io, "DeviceModel(", length(model.components), " components, dimension=",
+        size(model.H, 1), ")")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", model::DeviceModel)
+    show(io, model)
+    limited = IOContext(io, :compact => true, :limit => true)
+    print(io, "\n  Components: ")
+    show(limited, [c.name for c in model.components])
+    print(io, "\n  Parameters: ")
+    show(limited, model.parameters)
+    print(io, "\n  Operators: ", length(model.operators))
+    print(io, "\n  Compiled terms: ", length(model.compiled_terms))
+    print(io, "\n  Gates: ")
+    show(limited, collect(keys(model.gates)))
 end

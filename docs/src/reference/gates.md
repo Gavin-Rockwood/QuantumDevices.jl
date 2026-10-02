@@ -1,39 +1,57 @@
 # Pulses, gates, and calibration
 
-## Pulse interfaces
+## Timed controls
 
 ```@docs
 AbstractPulse
-AbstractParameterizedPulse
-pulse_function
-pulse_value
-InternalPulseFunction
-GenericPulseFunction
-```
-
-## Built-in pulses
-
-```@docs
-constant_pulse
-gaussian_pulse
-sine_pulse
-sine_squared_pulse
-ramped_flattop_pulse
-available_ramps
-```
-
-## Gates and calibration
-
-```@docs
+Pulse
+pulse_tstops
 DeviceGate
-parameters
-calibration_values
-AbstractCalibrationSetup
-SciMLCalibrationSetup
-calibration_problem
-calibrate
-calibrated_gate
+```
+
+## Envelopes and ramps
+
+```@docs
+AbstractEnvelope
+Constant
+Gaussian
+SineSquared
+RampedFlattop
+Envelope
+envelope_value
+validate_envelope
+```
+
+## Carriers
+
+```@docs
+AbstractCarrier
+SineCarrier
+Carrier
+carrier_value
+```
+
+## Evolution and metrics
+
+```@docs
+get_unitary
 gate_unitary
+unitary_fidelity
 unitary_infidelity
 gate_infidelity
 ```
+
+## Calibration
+
+```@docs
+parameters
+calibration_values
+AbstractCalibrationSetup
+CalibrationProblem
+SciMLCalibrationSetup
+calibration_problem
+calibrated_gate
+calibrate
+```
+
+`solve(problem, algorithm; kwargs...)` forwards directly to SciML's solver.

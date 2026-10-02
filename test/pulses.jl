@@ -1,111 +1,115 @@
-@testset "Pulse functions" begin
-    constant = constant_pulse(2.0; offset = 0.5, start = 1.0, stop = 3.0)
-    @test constant isa InternalPulseFunction
-    @test constant.name === :constant
-    @test pulse_function(constant)(merge(constant.parameters, (; duration = 4.0)), 1.0) == 2.5
-    @test pulse_value(constant, 0.5, 4.0) == 0.5
-    @test pulse_value(constant, 1.0, 4.0) == 2.5
-    @test pulse_value(constant, 3.5, 4.0) == 0.5
+struct TestTimedControl <: AbstractPulse
+    duration::Float64
+    delay::Float64
+    value::Float64
+end
+(p::TestTimedControl)(t) = p.value
 
-    gaussian = gaussian_pulse(2.0, 0.5; center = 2.0, offset = 0.25, start = 1.0, stop = 3.0)
-    @test gaussian isa InternalPulseFunction
-    @test gaussian.name === :gaussian
-    @test gaussian(2.0, 4.0) == 2.25
-    @test gaussian(0.0, 4.0) == 0.25
+@testset "Timed controls and reusable shapes" begin
+    constant = Pulse(Constant(); amplitude=2.0, offset=0.5, duration=2.0, delay=1.0)
+    @test constant(0.5) == 0.5
+    @test constant(1.0) == constant(3.0) == 2.5
+    @test constant(3.5) == 0.5
+    gaussian = Pulse(Gaussian(0.5); amplitude=2.0, offset=0.25, duration=2.0, delay=1.0)
+    @test gaussian(2.0) == 2.25
+    @test gaussian(1.0) ≈ 0.25 + 2exp(-2)
+    @test gaussian(0.0) == 0.25
+    lobe = Pulse(SineSquared(); amplitude=2, duration=4, delay=1)
+    @test lobe(1) == lobe(5) == 0
+    @test lobe(3) ≈ 2
+    flat = Pulse(RampedFlattop(1); amplitude=2, offset=0.5, duration=4, delay=1)
+    @test flat(1) == flat(5) == 0.5
+    @test flat(1.5) ≈ 1.5
+    @test flat(2) == flat(3) == flat(4) == 2.5
+    @test flat(4.5) ≈ 1.5
+    @test Pulse(RampedFlattop(1; ramp=:linear); duration=4)(0.25) ≈ 0.25
+    @test Pulse(RampedFlattop(1; ramp=:smoothstep); duration=4)(0.25) ≈ 0.15625
+    @test Pulse(RampedFlattop(0); duration=1)(0) == 1
 
-    sine_squared = sine_squared_pulse(2.0, 0.25; offset = 0.5, start = 1.0, stop = 5.0)
-    @test sine_squared.name === :sine_squared
-    @test sine_squared(0.0, 6.0) == 0.5
-    @test sine_squared(1.0, 6.0) ≈ 0.5
-    @test sine_squared(2.0, 6.0) ≈ 2.5
-    @test sine_squared(3.0, 6.0) ≈ 0.5
-    @test sine_squared(5.0, 6.0) ≈ 0.5
+    reused = Pulse(RampedFlattop(1; ramp=Gaussian(0.2; center=0.4), split=0.4); duration=4)
+    @test reused(0) == reused(4) == 0
+    @test reused(1) == reused(3) == 1
+    @test 0 < reused(0.5) < 1
+    asymmetric = Pulse(RampedFlattop(1; rise_time=0.5, fall_time=1.5,
+        ramp_up=Gaussian(0.2; center=0.4), split_up=0.4, ramp_down=SineSquared()); duration=4)
+    @test asymmetric(0) == asymmetric(4) == 0
+    @test asymmetric(0.5) == asymmetric(2.5) == 1
+    @test asymmetric(3.25) ≈ 0.5
+    @test parameters(asymmetric)["envelope/ramp_up/sigma"] == ("envelope/ramp_up/sigma", 0.2)
+    @test setpath(asymmetric, "envelope/ramp_up/sigma", 0.1).envelope.ramp_up.sigma == 0.1
+    @test asymmetric.envelope.ramp_up.sigma == 0.2
 
-    sine = sine_pulse(2.0, 0.25; offset = 0.5, start = 1.0, stop = 3.0)
-    @test sine.name === :sine
-    @test sine(1.0, 4.0) ≈ 0.5 atol = 1e-14
-    @test sine(2.0, 4.0) ≈ 2.5
-    @test sine(4.0, 4.0) == 0.5
+    drive = Pulse(Constant(); duration=1, delay=0.25, amplitude=2,
+        carrier=SineCarrier(1; phase=pi/2))
+    @test drive(0.25) ≈ 2
+    @test drive(0.5) ≈ 0 atol=1e-14
+    @test drive(0.75) ≈ -2
+    global_drive = setpath(drive, "carrier/reference", :gate)
+    @test global_drive(0.25) ≈ 0 atol=1e-14
+    negative = Pulse(Constant(); duration=1, carrier=SineCarrier(-1))
+    @test negative(0.25) ≈ -1
+    @test drive(0) == drive(2) == 0
+    complex_pulse = Pulse(Constant(); duration=1, amplitude=1+2im, offset=0.5im)
+    @test complex_pulse(0.5) == 1+2.5im
+    @test complex_pulse(2) == 0.5im
 
-    @test available_ramps() == (:sine_squared, :linear, :smoothstep)
-    flattop = ramped_flattop_pulse(2.0, 1.0; offset = 0.5, start = 1.0, stop = 5.0)
-    @test flattop isa InternalPulseFunction
-    @test flattop(0.0, 6.0) == 0.5
-    @test flattop(1.0, 6.0) ≈ 0.5
-    @test flattop(1.5, 6.0) ≈ 1.5
-    @test flattop(2.0, 6.0) ≈ 2.5
-    @test flattop(4.0, 6.0) ≈ 2.5
-    @test flattop(5.0, 6.0) ≈ 0.5
-    @test ramped_flattop_pulse(2.0, 1.0; ramp = :linear)(0.25, 4.0) ≈ 0.5
-    @test ramped_flattop_pulse(2.0, 1.0; ramp = :smoothstep)(0.25, 4.0) ≈ 0.3125
-    source = gaussian_pulse(3.0, 0.2; center = 0.4, offset = 0.7)
-    reused = ramped_flattop_pulse(2.0, 1.0; ramp = source, split = 0.4)
-    @test reused isa GenericPulseFunction
-    @test reused(0.0, 4.0) ≈ 0.0
-    @test reused(1.0, 4.0) ≈ 2.0
-    @test reused(2.0, 4.0) ≈ 2.0
-    @test reused(4.0, 4.0) ≈ 0.0
-    @test 0 < reused(0.5, 4.0) < 2
-    @test 0 < reused(3.5, 4.0) < 2
-    squared_ramp = ramped_flattop_pulse(2.0, 1.0;
-        ramp = sine_squared_pulse(1.0, 0.5))
-    @test squared_ramp(0.5, 4.0) ≈ 1.0
-    @test squared_ramp(3.5, 4.0) ≈ 1.0
-    asymmetric = ramped_flattop_pulse(2.0, 1.0;
-        ramp_up = gaussian_pulse,
-        ramp_up_kwargs = (; sigma = 0.2, center = 0.4), split_up = 0.4,
-        ramp_down = sine_squared_pulse,
-        ramp_down_kwargs = (; frequency = 0.5))
-    @test asymmetric isa GenericPulseFunction
-    @test asymmetric(0.0, 4.0) ≈ 0.0
-    @test asymmetric(1.0, 4.0) ≈ 2.0
-    @test asymmetric(3.5, 4.0) ≈ 1.0
-    @test asymmetric(4.0, 4.0) ≈ 0.0
-    @test asymmetric(0.5, 4.0) != asymmetric(3.5, 4.0)
-    narrower = ramped_flattop_pulse(2.0, 1.0;
-        ramp = gaussian_pulse,
-        ramp_kwargs = (; sigma = 0.1, center = 0.4), split = 0.4)
-    @test narrower(0.5, 4.0) != asymmetric(0.5, 4.0)
-    overridden = ramped_flattop_pulse(2.0, 1.0;
-        ramp = gaussian_pulse(1.0, 0.1; center = 0.4),
-        ramp_kwargs = (; sigma = 0.2), split = 0.4)
-    @test overridden(0.5, 4.0) ≈ asymmetric(0.5, 4.0)
-    @test_throws ArgumentError ramped_flattop_pulse(1, 0.2; ramp = :unknown)
-    @test_throws ArgumentError ramped_flattop_pulse(1, 0.2;
-        ramp = :linear, ramp_kwargs = (; sigma = 0.2))
-    @test_throws ArgumentError ramped_flattop_pulse(1, 0.2; ramp = constant_pulse(1))(0.1, 1.0)
-    @test_throws ArgumentError ramped_flattop_pulse(1, 0.6)(0.0, 1.0)
-
-    for internal in (constant, gaussian, sine_squared, sine, flattop)
-        generic_equivalent = GenericPulseFunction(pulse_function(internal), internal.parameters)
-        for t in (0.0, 2.0, 6.0)
-            @test generic_equivalent(t, 6.0) == internal(t, 6.0)
-        end
-        @test calibration_values(generic_equivalent) == calibration_values(internal)
+    custom = Pulse(Envelope((p,t,d) -> p.scale*t/d, (; scale=2)); duration=2,
+        carrier=Carrier((p,t) -> p.bias+t, (; bias=1)))
+    @test custom(1) == 2
+    @test getpath(custom, "envelope/scale") == 2
+    @test setpath(custom, "envelope/scale", 3).envelope.parameters.scale == 3
+    @test parameters(custom)["carrier/bias"] == ("carrier/bias", 1)
+    nested = Pulse(Envelope((p,t,d) -> p.config.scale, (; config=(; scale=2.0)));
+        duration=1.0, carrier=Carrier((p,t) -> p.reference, (; reference=1.0)))
+    @test parameters(nested)["envelope/config/scale"] == ("envelope/config/scale", 2.0)
+    @test parameters(nested)["carrier/parameters/reference"] == ("carrier/parameters/reference", 1.0)
+    @test parameters(nested)["carrier/reference"] == ("carrier/reference", :pulse)
+    @test setpath(nested, "envelope/config/scale", 3.0)(0.5) == 3.0
+    @test setpath(nested, "carrier/parameters/reference", 2.0)(0.5) == 4.0
+    @test_throws ArgumentError Envelope(t -> t)
+    @test_throws ArgumentError Carrier((p,t,d) -> t)
+    @test_throws ArgumentError Pulse(Envelope((p,t,d) -> [t]); duration=1)
+    @test_throws ArgumentError Pulse(Constant(); duration=1, carrier=Carrier((p,t) -> NaN))
+    for duration in (0, -1, Inf, NaN)
+        @test_throws ArgumentError Pulse(Constant(); duration)
     end
+    for delay in (-1, Inf, NaN)
+        @test_throws ArgumentError Pulse(Constant(); duration=1, delay)
+    end
+    @test_throws ArgumentError Pulse(Constant(); duration=1, amplitude=Inf)
+    @test_throws ArgumentError drive(NaN)
+    @test_throws ArgumentError Gaussian(0)
+    @test_throws ArgumentError Pulse(Gaussian(1; center=3); duration=2)
+    @test_throws ArgumentError SineCarrier(Inf)
+    @test_throws ArgumentError SineCarrier(1; reference=:unknown)
+    @test_throws ArgumentError RampedFlattop(1; ramp=:unknown)
+    @test_throws ArgumentError RampedFlattop(1; ramp=Constant())
+    @test_throws ArgumentError RampedFlattop(1; split=0)
+    @test_throws ArgumentError Pulse(RampedFlattop(1); duration=1)
 
-    generic = GenericPulseFunction((p, t) -> p.scale * t / p.duration, (scale = 2.0,))
-    @test generic(0.5, 2.0) == 0.5
-    @test generic.parameters == (scale = 2.0,)
-    changed = setpath(generic, "parameters/scale", 3.0)
-    @test changed(0.5, 2.0) == 0.75
-    @test generic.parameters.scale == 2.0
-    @test_throws ArgumentError GenericPulseFunction(t -> t, (;))
-    @test_throws ArgumentError GenericPulseFunction((p, t) -> t, (duration = 1.0,))
-    @test_throws ArgumentError generic(0.0, -1.0)
-    @test_throws ArgumentError GenericPulseFunction((p, t) -> NaN, (;))(0.5, 1.0)
-
-    @test_throws ArgumentError InternalPulseFunction(
-        :missing, (; amplitude = 1, offset = 0, start = 0, stop = nothing),
-    )
-    @test_throws ArgumentError GenericPulseFunction(1, (;))
-    @test_throws ArgumentError DeviceGate((drive = t -> t,), param(:drive), 1.0)
-    @test_throws ArgumentError DeviceGate((drive = "bad",), param(:drive), 1.0)
-    @test_throws ArgumentError DeviceGate((drive = NaN,), param(:drive), 1.0)
-    @test_throws ArgumentError DeviceGate((drive = gaussian_pulse(1.0, 0.0),), param(:drive), 1.0)
-    @test_throws ArgumentError DeviceGate((drive = constant_pulse(1.0; start = 2.0),), param(:drive), 1.0)
-    @test_throws ArgumentError DeviceGate((drive = ramped_flattop_pulse(1.0, 0.6),), param(:drive), 1.0)
-    @test_throws ArgumentError DeviceGate((;), 0, -1.0)
-    vector_pulse = GenericPulseFunction((p, t) -> [t], (;))
-    @test_throws ArgumentError DeviceGate((drive = vector_pulse,), param(:drive), 1.0)
+    gate = DeviceGate((; drive, flux=flat), param(:drive))
+    @test gate.duration == 5
+    @test pulse_tstops(flat) == [1, 2, 4, 5]
+    @test pulse_tstops(gate) == [0.25, 1, 1.25, 2, 4]
+    @test gate.duration_override === nothing
+    changed = setpath(gate, "drive/delay", 5.0)
+    @test changed.duration == 6
+    @test gate.duration == 5
+    extended = setpath(gate, "flux/duration", 5)
+    @test extended.duration == 6
+    explicit = DeviceGate(gate.parameters, gate.hamiltonian, 7)
+    @test setpath(explicit, "drive/delay", 5).duration == 7
+    @test_throws ArgumentError setpath(explicit, "drive/delay", 7)
+    @test_throws ArgumentError DeviceGate(gate.parameters, gate.hamiltonian, 4)
+    @test_throws ArgumentError DeviceGate((drive=1,), 0)
+    @test_throws ArgumentError DeviceGate((drive=t->t,), 0, 1)
+    @test DeviceGate((drive=1,), 0, 2).duration == 2
+    @test_throws ArgumentError DeviceGate((drive=TestTimedControl(0.0, 0.0, 1.0),), 0)
+    @test_throws ArgumentError DeviceGate((drive=TestTimedControl(1.0, -1.0, 1.0),), 0)
+    @test_throws ArgumentError DeviceGate((drive=TestTimedControl(1.0, 0.0, NaN),), 0)
+    @test_throws ArgumentError Pulse(Constant(); duration=1, amplitude=1e308, offset=1e308)
+    @test_throws ArgumentError Pulse(Constant(); duration=1, delay=typemax(Int))
+    @test setpath(explicit, "duration", nothing).duration == 5
+    collision = DeviceGate((duration=drive,), 0)
+    @test parameters(collision)["duration/amplitude"] == ("parameters/duration/amplitude", 2)
 end

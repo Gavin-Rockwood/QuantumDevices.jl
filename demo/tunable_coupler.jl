@@ -28,8 +28,8 @@ const TARGET = (
 const SWAP_SETTINGS = (
     duration=28.135660302912168,
     ramp=1.8727503955158111,
-    q1_flux=0.13179481074069765,
-    coupler_flux=0.3883280493601018,
+    q1_flux=0.1318136929161456,
+    coupler_flux=0.3873022470423121,
 )
 
 const QUARTER_SETTINGS = (
@@ -48,12 +48,12 @@ function make_coupler_model(; params=TARGET, retained_levels=3, n_cutoff=60)
     retained_levels isa Integer && 1 <= retained_levels <= 2n_cutoff+1 ||
         throw(ArgumentError("retained_levels must fit the parent charge basis"))
     # Split the total Josephson energy equally between the two junctions.
-    q1 = make_tunable_transmon("q1", 2pi*params.EC1, pi*params.EJ1,
-        pi*params.EJ1, 2n_cutoff+1)
-    q2 = make_tunable_transmon("q2", 2pi*params.EC2, pi*params.EJ2,
-        pi*params.EJ2, 2n_cutoff+1)
-    c = make_tunable_transmon("c", 2pi*params.ECc, pi*params.EJc,
-        pi*params.EJc, 2n_cutoff+1)
+    q1 = make_tunable_transmon("q1", params.EC1, params.EJ1/2,
+        params.EJ1/2, 2n_cutoff+1)
+    q2 = make_tunable_transmon("q2", params.EC2, params.EJ2/2,
+        params.EJ2/2, 2n_cutoff+1)
+    c = make_tunable_transmon("c", params.ECc, params.EJc/2,
+        params.EJc/2, 2n_cutoff+1)
 
     η = params.EC12 * params.ECc / (params.EC1c * params.EC2c)
     g1c = 8 * params.EC1 * params.ECc / params.EC1c
@@ -63,7 +63,7 @@ function make_coupler_model(; params=TARGET, retained_levels=3, n_cutoff=60)
                   param(:g2c)*op(:q2_charge)*op(:c_charge) +
                   param(:g12)*op(:q1_charge)*op(:q2_charge)
     model = make_model([q1, q2, c], interaction,
-        (; g1c=2pi*g1c, g2c=2pi*g2c, g12=2pi*g12);
+        (; g1c, g2c, g12);
         truncation_dimensions=Dict(q1=>retained_levels, q2=>retained_levels,
                                    c=>retained_levels),
         max_dimension=retained_levels^3)
@@ -78,28 +78,17 @@ end
 # 3. Change existing model parameters with a flux gate. A zero additional
 # Hamiltonian is sufficient: q1_phi and c_phi already occur in the model.
 
-"""Exchange pulse with linear flux ramps on q1 and the coupler."""
+"""Exchange pulse with sin² flux ramps on q1 and the coupler."""
 function swap_gate(; settings=SWAP_SETTINGS)
     T, ramp = settings.duration, settings.ramp
-    q1_flux = ramped_flattop_pulse(settings.q1_flux, ramp;
-        ramp=:linear, stop=T)
-    # The coupler pulse begins one ramp late and ends one ramp early.
-    c_flux = ramped_flattop_pulse(settings.coupler_flux, ramp;
-        ramp=:linear, start=ramp, stop=T-ramp)
-    return DeviceGate((; q1_phi=q1_flux, c_phi=c_flux), 0, T)
+    q1_flux = Pulse(RampedFlattop(ramp); amplitude=settings.q1_flux, duration=T)
+    # The coupler starts one ramp late and ends one ramp early.
+    c_flux = Pulse(RampedFlattop(ramp); amplitude=settings.coupler_flux,
+        duration=T-2ramp, delay=ramp)
+    return DeviceGate((; q1_phi=q1_flux, c_phi=c_flux), 0)
 end
 
-# 4. Add microwave drives with a separate envelope and carrier. The gate
-# supplies p.duration; GenericPulseFunction stores only the other parameters.
-
-struct ChargeCarrier{E}
-    envelope::E
-end
-
-function (carrier::ChargeCarrier)(p, t)
-    return 2pi*p.epsilon * pulse_value(carrier.envelope, t, p.duration) *
-           sin(2pi*p.frequency*t + p.phase)
-end
+# 4. Add microwave drives with reusable envelopes and carriers.
 
 """Build one of the quarter-X/Y charge drives on qubit 1 or 2."""
 function quarter_gate(qubit::Integer, axis::Symbol)
@@ -107,11 +96,9 @@ function quarter_gate(qubit::Integer, axis::Symbol)
     axis in (:X, :Y) || throw(ArgumentError("axis must be :X or :Y"))
     settings = qubit == 1 ? QUARTER_SETTINGS.q1 : QUARTER_SETTINGS.q2
     phase = axis === :Y ? settings.phase - 3pi/2 : settings.phase
-    envelope = sine_squared_pulse(1.0, 1/(2settings.duration))
-    drive = GenericPulseFunction(ChargeCarrier(envelope),
-        (; epsilon=settings.epsilon, frequency=settings.frequency, phase))
-    return DeviceGate((; drive), param(:drive)*op(Symbol("q", qubit, "_charge")),
-        settings.duration)
+    drive = Pulse(SineSquared(); amplitude=settings.epsilon, duration=settings.duration,
+        carrier=SineCarrier(settings.frequency; phase))
+    return DeviceGate((; drive), param(:drive)*op(Symbol("q", qubit, "_charge")))
 end
 
 # 5. Evolve a dressed state and measure source and target populations.
@@ -121,8 +108,8 @@ end
 function swap_population(model; samples=121, abstol=1e-8, reltol=1e-8)
     gate = model.gates[:swap]
     times = range(0, gate.duration; length=samples)
-    result = sesolve(numerical(model, gate), model.states[(1, 0, 0)], times;
-        progress_bar=false, abstol, reltol)
+    result = sesolve(2pi * numerical(model, gate), model.states[(1, 0, 0)], times;
+        progress_bar=false, tstops=pulse_tstops(gate), abstol, reltol)
     SciMLBase.successful_retcode(result.retcode) || error("Flux-pulse solve failed")
     source = model.states[(1, 0, 0)]
     target = model.states[(0, 1, 0)]
@@ -141,20 +128,20 @@ function plot_controls(model=make_coupler_model())
     T = model.gates[:swap].duration
     ts = range(0, T; length=501)
     gate = model.gates[:swap]
-    lines!(flux_axis, ts, [pulse_value(gate.parameters.q1_phi, t, T) for t in ts];
+    lines!(flux_axis, ts, [gate.parameters.q1_phi(t) for t in ts];
         color=:royalblue, label="Qubit 1")
-    lines!(flux_axis, ts, [pulse_value(gate.parameters.c_phi, t, T) for t in ts];
+    lines!(flux_axis, ts, [gate.parameters.c_phi(t) for t in ts];
         color=:purple, label="Coupler")
     axislegend(flux_axis; position=:rt)
     for qubit in (1, 2)
         ax = Axis(fig[2, qubit]; xlabel="Time (ns)",
-            ylabel="Charge-drive coefficient / 2π (GHz)",
+            ylabel="Charge-drive coefficient (GHz)",
             title="Qubit $qubit quarter rotations")
         for (axis, color) in ((:X, :royalblue), (:Y, :darkorange))
             gate = model.gates[Symbol("quarter_", lowercase(string(axis)), qubit)]
             T = gate.duration
             ts = range(0, T; length=1001)
-            lines!(ax, ts, [pulse_value(gate.parameters.drive, t, T)/2pi for t in ts];
+            lines!(ax, ts, [gate.parameters.drive(t) for t in ts];
                 color, label="quarter-$axis")
         end
         axislegend(ax; position=:rt)

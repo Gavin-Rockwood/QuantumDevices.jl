@@ -3,8 +3,8 @@
     make_resonator(; name, frequency, dimension)
 
 Construct a harmonic resonator in its Fock basis with
-`H = frequency * a†a`. `frequency` is an angular frequency (energy divided by ℏ)
-in units reciprocal to simulation time. The positive integer `dimension` is the
+`H = frequency * a†a`. `frequency` is in cycles per unit time
+(e.g. GHz for time in ns); evolution uses `2π * H`. The positive integer `dimension` is the
 number of Fock states retained in the component's parent space.
 
 The local operators are `a` (annihilation), `adag` (creation), and `n` (number).

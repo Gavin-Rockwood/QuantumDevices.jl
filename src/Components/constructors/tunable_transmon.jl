@@ -8,6 +8,7 @@ Construct an asymmetric split-junction transmon in its initial energy basis.
 The effective Josephson energy is
 `(EJ1 + EJ2) * sqrt(cospi(phi)^2 + d^2 * sinpi(phi)^2)`,
 where `d = (EJ1 - EJ2)/(EJ1 + EJ2)` and `phi` is external flux in flux-quantum units.
+`EC`, `EJ1`, and `EJ2` use frequency units (`E/h`, cycles per unit time).
 The other conventions and positive odd parent dimension match [`make_transmon`](@ref).
 
 `EJmax` and `d` are derived parameters. Updating physical inputs through

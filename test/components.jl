@@ -3,6 +3,10 @@
     @test q.operators.m == sigmam()
     @test q.operators.p == q.operators.m'
     @test numerical(q.hamiltonian, q.operators, q.parameters) ≈ sigmaz()
+    @test numerical(q, q.hamiltonian) ≈ sigmaz()
+    @test numerical(q, op(:x)) ≈ sigmax()
+    @test numerical(q, param(:drive) * op(:x))((drive=0.2,), 0.0) ≈ 0.2 * sigmax()
+    @test_throws KeyError numerical(q, op(:missing))
     q2 = setpath(q, "parameters/ν", 3.0)
     @test q2.parameters.ν == 3.0
     @test q.parameters.ν == 2.0
@@ -17,6 +21,8 @@
     @test r.operators.n == num(4)
     @test make_resonator(; dimension=4, frequency=2.5, name="r").parameters == r.parameters
     @test numerical(r.hamiltonian, r.operators, r.parameters) ≈ 2.5 * num(4)
+    @test numerical(r, r.hamiltonian) ≈ 2.5 * num(4)
+    @test numerical(r, op(:adag) * op(:a)) ≈ num(4)
     r2 = setpath(r, "parameters/frequency", 3.0)
     @test numerical(r2.hamiltonian, r2.operators, r2.parameters) ≈ 3.0 * num(4)
     @test r.parameters.frequency == 2.5
@@ -27,6 +33,8 @@
     c = make_transmon("t", 0.2, 5.0, 9; ng = 0.15)
     @test make_transmon(; ng=0.15, dimension=9, EJ=5.0, name="t", EC=0.2).parameters == c.parameters
     H = numerical(c.hamiltonian, c.operators, c.parameters)
+    @test numerical(c, c.hamiltonian) ≈ H
+    @test numerical(c, op(:charge)^2) ≈ c.operators.charge^2
     charge = num(9) - 4
     direct = 4 * 0.2 * (0.15 - charge)^2 - 0.5 * 5.0 * tunneling(9, 1)
     @test eigvals(Hermitian(Matrix(H.data))) ≈ eigvals(Hermitian(Matrix(direct.data)))
@@ -59,6 +67,7 @@
     custom = Component("custom", (a = 1.0,), (x = sigmax(),), param(:a) * op(:x),
         "custom", 2)
     custom2 = setpath(custom, "parameters/a", 2.0)
+    @test numerical(custom2, custom2.hamiltonian) ≈ 2 * sigmax()
     @test custom2.parameters.a == 2.0
     @test custom2.operators === custom.operators
     @test_throws ArgumentError make_transmon("bad", 0.2, 5, 8)

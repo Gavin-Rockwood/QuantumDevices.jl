@@ -37,10 +37,12 @@ operators, initial states, and solvers. No Circuits or Dynamics submodule is nee
 
 ## Units and labels
 
-Hamiltonians follow ℏ = 1. An input frequency in Hz must be converted to angular
-frequency using `2π`; time and Hamiltonian coefficients must use reciprocal units.
-Pulse constructors named `sine_pulse` and `sine_squared_pulse` instead take their
-sine frequency in **cycles per time**. See [conventions](../explanations/conventions.md).
+Hamiltonians and energy parameters use frequency units, `E/h`, in **cycles per
+time** (GHz for time in ns). Pass frequency values directly to constructors.
+`numerical` preserves them; `get_unitary` explicitly multiplies by `2π` during
+evolution. Direct QuantumToolbox `sesolve` and `mesolve` calls must use `2π * H`.
+`SineCarrier` takes frequency in cycles per time;
+their sine arguments include `2π` and their phase is in radians. See [conventions](../explanations/conventions.md).
 
 Tensor order follows component order. Dressed-state labels are tuples of
 zero-based local **energy levels**, while Julia array indices are one-based.

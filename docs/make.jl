@@ -1,11 +1,20 @@
 using QuantumDevices
 using Documenter
 using DocumenterVitepress
+using Literate
 
 const DOCS_ROOT = @__DIR__
 const BUILD_ROOT = joinpath(DOCS_ROOT, "build")
 const MARKDOWN_ONLY = get(ENV, "DOCS_MARKDOWN_ONLY", "false") == "true"
 const DEPLOY = get(ENV, "DOCS_DEPLOY", "false") == "true"
+
+# The Julia walkthrough is the source for both the script and tutorial page.
+Literate.markdown(
+    joinpath(DOCS_ROOT, "src", "tutorials", "transmon_resonator_control.jl"),
+    joinpath(DOCS_ROOT, "src", "tutorials");
+    name="transmon_resonator_control", execute=false, credit=false,
+    codefence="```@example mode3" => "```",
+)
 
 function documentation_versions()
     repository = normpath(joinpath(DOCS_ROOT, ".."))

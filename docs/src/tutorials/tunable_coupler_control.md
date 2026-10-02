@@ -27,8 +27,8 @@ TARGET
 
 `TARGET` contains circuit parameters; `SWAP_SETTINGS` and `QUARTER_SETTINGS`
 contain pulse parameters. Energies, couplings, and drive frequencies are in
-cycles/ns (GHz), while time is in ns. Convert energy and drive coefficients to
-angular units with `2π` when constructing Hamiltonians.
+cycles/ns (GHz), while time is in ns. Keep these values in frequency units
+when constructing Hamiltonians; apply `2π` only at evolution.
 
 ## 2. Construct and couple three transmons
 
@@ -42,7 +42,7 @@ interaction = param(:g1c) * op(:q1_charge) * op(:c_charge) +
 ```
 
 Operator prefixes come from the component names. The helper computes coupling
-strengths from `TARGET`, converts them to rad/ns, and passes the interaction
+strengths from `TARGET` in GHz and passes the interaction
 and parameter values to `make_model`.
 
 ```@example coupler
@@ -57,7 +57,7 @@ from the parent basis before truncation. The helper also attaches one flux
 pulse and four microwave pulses.
 
 `make_tunable_transmon` takes the charging energy and the two junction
-energies in angular units. This model splits each total Josephson energy equally
+energies in frequency units (`E/h`, GHz here). This model splits each total Josephson energy equally
 between the junctions. Its `phi` parameter is flux in units of the flux quantum;
 use that same parameter directly when defining controls.
 
@@ -69,12 +69,12 @@ Build the exchange pulse explicitly:
 ```@example coupler
 settings = SWAP_SETTINGS
 T, ramp = settings.duration, settings.ramp
-q1_flux = ramped_flattop_pulse(settings.q1_flux, ramp;
-    ramp=:linear, stop=T)
-c_flux = ramped_flattop_pulse(settings.coupler_flux, ramp;
-    ramp=:linear, start=ramp, stop=T-ramp)
-model.gates[:swap] = DeviceGate((; q1_phi=q1_flux, c_phi=c_flux), 0, T)
-model.gates[:swap].duration
+q1_flux = Pulse(RampedFlattop(ramp); amplitude=settings.q1_flux, duration=T)
+c_flux = Pulse(RampedFlattop(ramp); amplitude=settings.coupler_flux,
+    delay=ramp, duration=T-2ramp)
+flux_gate = DeviceGate((; q1_phi=q1_flux, c_phi=c_flux), 0)
+@assert flux_gate.duration == T
+
 ```
 
 `q1_phi` and `c_phi` match parameters already present in the model Hamiltonian.
@@ -92,27 +92,13 @@ quarter-X drive on qubit 1:
 x1 = quarter_gate(1, :X)
 model.gates[:quarter_x1] = x1
 (; duration_ns=x1.duration,
-   midpoint_coefficient=pulse_value(x1.parameters.drive, x1.duration / 2, x1.duration))
+   midpoint_coefficient=x1.parameters.drive(x1.duration / 2))
 ```
 
-Inside `quarter_gate`, `sine_squared_pulse(1.0, 1/(2T))` gives one envelope lobe
-over the gate duration. A `GenericPulseFunction` combines it with a carrier,
+Inside `quarter_gate`, `Pulse(SineSquared(); duration=T, amplitude=epsilon,
+carrier=SineCarrier(frequency; phase))` defines a microwave drive directly.
+The envelope has one lobe over its duration; carrier phase is in radians.
 
-```math
-h(t)=2\pi\epsilon\,e(t)\sin(2\pi\nu t+\varphi),
-```
-
-and `DeviceGate((; drive), param(:drive) * op(:q1_charge), T)` attaches that
-coefficient to qubit 1. The callable receives the owning gate duration through
-`p.duration`. Choose qubit `2` or axis `:Y` to build the other controls. Their
-names describe the intended rotations; this tutorial does not recalibrate
-or verify those rotations.
-
-```@example coupler
-plot_controls(model)
-```
-
-The upper panel shows the `q1_phi` and `c_phi` controls in flux-quantum units. The lower panels show microwave coefficients divided by `2π`.
 
 ## 5. Simulate excitation exchange
 
@@ -123,8 +109,8 @@ gate = model.gates[:swap]
 source = model.states[(1, 0, 0)]
 target = model.states[(0, 1, 0)]
 times = range(0, gate.duration; length=121)
-result = sesolve(numerical(model, gate), source, times;
-    progress_bar=false, abstol=1e-8, reltol=1e-8)
+result = sesolve(2pi * numerical(model, gate), source, times;
+    progress_bar=false, tstops=pulse_tstops(gate), abstol=1e-8, reltol=1e-8)
 @assert SciMLBase.successful_retcode(result.retcode)
 p100 = [abs2(dot(source, state)) for state in result.states]
 p010 = [abs2(dot(target, state)) for state in result.states]
@@ -163,8 +149,8 @@ bundle_path = QuantumDevices.save(joinpath(mktempdir(), "tunable_coupler"), mode
 restored = QuantumDevices.load(bundle_path)
 @assert restored.H ≈ model.H
 @assert Set(keys(restored.gates)) == Set(keys(model.gates))
-@assert pulse_value(restored.gates[:quarter_x1].parameters.drive, x1.duration / 2, x1.duration) ≈
-    pulse_value(x1.parameters.drive, x1.duration / 2, x1.duration)
+@assert restored.gates[:quarter_x1].parameters.drive(x1.duration / 2) ≈
+    x1.parameters.drive(x1.duration / 2)
 println(join(sort(readdir(bundle_path)), ", "))
 ```
 

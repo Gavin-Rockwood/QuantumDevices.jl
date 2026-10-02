@@ -38,8 +38,21 @@ npm --prefix docs ci
 npm --prefix docs run docs:dev
 ```
 
-Re-run generation after changing source Markdown or docstrings. The scripts all
-use `docs/build/.documenter`; do not run VitePress against the source directory.
+The transmon–resonator tutorial is generated with Literate.jl from
+`docs/src/tutorials/transmon_resonator_control.jl`. Edit its prose in `#` comments and its Julia code directly in that
+file; the build generates the Markdown page and executes its code blocks.
+Do not edit the generated `docs/src/tutorials/transmon_resonator_control.md`.
+
+Re-run generation after changing tutorial scripts, source Markdown, or docstrings.
+The scripts all use `docs/build/.documenter`; do not run VitePress against the source directory.
+
+## Source organization
+
+Keep explicit overloads in `overloads.jl` beside the structures they extend.
+`src/time_evolution` owns solver-based evolution; generic fidelity metrics live
+in `src/utils/metrics/fidelities.jl`, and gate-specific metrics live in
+`src/gates/utils/metrics.jl`. Hamiltonians use frequency units; apply `2π` at
+solver calls rather than constructors or `numerical`.
 
 ## Adding documentation
 

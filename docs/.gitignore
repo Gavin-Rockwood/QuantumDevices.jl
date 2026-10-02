@@ -6,3 +6,6 @@ manifest.toml
 docs/
 .documenter/
 **/.vitepress/cache/
+
+# Generated from src/tutorials/transmon_resonator_control.jl by Literate.
+src/tutorials/transmon_resonator_control.md

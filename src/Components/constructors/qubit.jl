@@ -3,8 +3,8 @@
     make_qubit(; name, ν, dimension=2)
 
 Construct a two-level component with `H = ν * Z / 2` and operators `x`, `y`, `z`,
-`p`, and `m` from QuantumToolbox. The input `ν` is an energy divided by ℏ
-(angular frequency), with units reciprocal to simulation time. The dimension
+`p`, and `m` from QuantumToolbox. The input `ν` is a frequency, `E/h`, in cycles per unit time
+(e.g. GHz for time in ns). Evolution uses `2π * H`. The dimension
 is fixed at two. This Pauli convention assigns `+ν/2` to the first basis vector;
 do not infer ground-state labels from its array index.
 """

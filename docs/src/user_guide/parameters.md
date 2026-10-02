@@ -1,18 +1,19 @@
 # Parameter discovery and updates
 
 `parameters(gate)` returns `name => (path, value)`. Gate scalars retain their names;
-pulse parameters use names such as `"drive/amplitude"`. `calibration_values` is an
+pulse parameters use names such as `"drive/amplitude"`, `"drive/carrier/frequency"`,
+and `"drive/envelope/sigma"`, including nested ramp and custom shape parameters. `calibration_values` is an
 alias; neither function filters the discovery map to optimizable numbers.
 
 ```@example parameters
 using QuantumDevices
-pulse = gaussian_pulse(0.2, 0.1)
+pulse = Pulse(Gaussian(0.1); amplitude=0.2, duration=1.0)
 gate = DeviceGate((; drive=pulse), param(:drive) * op(:q_x), 1.0)
 path, original = parameters(gate)["drive/amplitude"]
 updated = setpath(gate, path, 0.4)
 @assert getpath(updated, path) == 0.4
 @assert getpath(gate, path) == original
-@assert haspath(gate, "drive/sigma")
+@assert haspath(gate, "drive/envelope/sigma")
 (path, original)
 ```
 

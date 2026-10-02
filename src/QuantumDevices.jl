@@ -1,10 +1,21 @@
+"""
+    QuantumDevices
+
+Quantum-device Hamiltonians and energy parameters use frequency units, `E/h`
+(cycles per unit time), not angular frequency. For time in ns, use GHz.
+`numerical` preserves these units. Time evolution uses `2π * H`; `get_unitary`
+applies that factor at its solver call. Direct QuantumToolbox `sesolve`/`mesolve`
+calls require the caller to supply the same factor explicitly. Dimensionless
+parameters (for example flux and offset charge) and phases in radians retain
+their own conventions.
+"""
 module QuantumDevices
     using LinearAlgebra
     using SparseArrays
     import JSON3
     import JLD2
     import SciMLBase
-    using SciMLBase: MatrixOperator
+    using SciMLBase: MatrixOperator, solve
     using QuantumToolbox
 
     # Base Overloads
@@ -21,12 +32,14 @@ module QuantumDevices
     include("model/model.jl")
     export DeviceModel, make_model
     include("gates/gates.jl")
-    export AbstractPulse, AbstractParameterizedPulse, pulse_function, InternalPulseFunction, GenericPulseFunction, DeviceGate
-    export constant_pulse, gaussian_pulse, sine_squared_pulse, sine_pulse, pulse_value, ramped_flattop_pulse, available_ramps
+    export AbstractPulse, Pulse, DeviceGate, pulse_tstops
+    export AbstractEnvelope, Constant, Gaussian, SineSquared, RampedFlattop, Envelope, envelope_value, validate_envelope
+    export AbstractCarrier, SineCarrier, Carrier, carrier_value
     export parameters, calibration_values, calibration_problem, calibrated_gate, calibrate
-    export AbstractCalibrationSetup, SciMLCalibrationSetup, gate_unitary, unitary_infidelity, gate_infidelity
+    export CalibrationProblem, solve
+    export AbstractCalibrationSetup, SciMLCalibrationSetup, get_unitary, gate_unitary, unitary_fidelity, unitary_infidelity, gate_infidelity
 
-    include("display/display.jl")
+    include("time_evolution/time_evolution.jl")
     include("io/io.jl")
     export save, load
 

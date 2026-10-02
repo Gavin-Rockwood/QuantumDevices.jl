@@ -13,6 +13,8 @@ import QuantumDevices as QD
     include("models.jl")
     include("pulses.jl")
     include("gates.jl")
+    include("fidelities.jl")
+    include("time_evolution.jl")
     include("io_bundle.jl")
     include("calibration.jl")
 end
