@@ -1,6 +1,6 @@
 name = "QuantumDevices"
 uuid = "2922de0c-2856-4bd8-898b-94dde52865ea"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3-DEV"
 authors = ["Gavin Rockwood"]
 
 [deps]
