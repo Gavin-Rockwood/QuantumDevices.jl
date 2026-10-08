@@ -11,9 +11,11 @@ The evolution convention is
 ```
 
 Pass frequencies directly to component constructors and gate coefficients.
-`numerical` preserves frequency units, including the model's dressed eigenvalues.
+`numerical` preserves frequency units by default, including the model's dressed eigenvalues.
 `get_unitary` explicitly supplies `2π * H` to QuantumToolbox. When calling
-QuantumToolbox `sesolve` or `mesolve` directly, supply `2π * H` yourself;
+QuantumToolbox `sesolve` or `mesolve` directly, use
+`numerical(model, gate; scalar=2pi)` to fold `2π` into the matrices, or supply
+`2π * H` yourself;
 do not also multiply constructor inputs or drive amplitudes by `2π`.
 
 `make_qubit(name, ν)` uses `H=ν Z/2`; its splitting is `|ν|` in cycles per time.
@@ -47,9 +49,26 @@ For target and realized unitaries on a d-dimensional retained space,
 `unitary_fidelity` returns `F_pro`; `unitary_infidelity` returns `1-F_pro`,
 with results clamped to `[0,1]`.
 It checks target unitarity, not actual unitarity. Validate solver accuracy and
-unitarity when interpreting very small errors. The formula is phase insensitive.
-It compares the complete retained space, not one state transfer and not a projected
-computational subspace. It is not a general fidelity for dissipative channels.
+unitarity when interpreting very small errors. The formula ignores global phase
+but includes relative phases. For a projected gate matrix `M`, the same overlap
+score retains leakage; the average-fidelity conversion above applies to unitaries.
+
+With `include_phases=false`, the score is
+
+```math
+F_{\mathrm{prob}}=\frac{1}{d}\sum_j\left(\sum_i |T_{ij}|\,|M_{ij}|\right)^2.
+```
+
+This compares each column's transition probabilities without renormalizing
+projected columns. For an X or permutation target it is the mean correct-transfer
+probability. Mean leakage is `1 - sum(abs2, M)/d` for normalized evolved inputs
+and an orthonormal output basis. These are closed-system gate scores, not general
+fidelities for dissipative channels.
+
+`get_gate_matrix` and `CalibrationProblem` support selected input/output bases.
+Their default `frame=:lab` preserves lab phases; explicit `frame=:interaction`
+computes `C' * exp(2π*im*H_idle*T) * Ψ(T)`. It changes the final comparison,
+not the integration or its computational cost.
 
 ## Numerical limits
 

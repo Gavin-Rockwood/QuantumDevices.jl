@@ -1,13 +1,15 @@
 """
-    numerical(component::Component, expression::Sym)
+    numerical(component::Component, expression::Sym; scalar=1, dense=false)
 
 Evaluate a symbolic expression using the component's local operators and
 parameters in its parent Hilbert space. Use local names such as `op(:charge)`.
 For example, `numerical(component, component.hamiltonian)` evaluates its Hamiltonian.
 Unresolved parameters produce a `QobjEvo`, as with the other symbolic overloads.
+`dense=true` materializes all operator matrices as dense matrices at construction.
+`scalar` is folded into operator matrices and constant coefficients at construction.
 """
-numerical(component::Component, expression::Sym) =
-    numerical(expression, component.operators, component.parameters)
+numerical(component::Component, expression::Sym; scalar::Number=1, dense::Bool=false) =
+    numerical(expression, component.operators, component.parameters; scalar, dense)
 
 function _replace_property(component::Component, key::Symbol, value)
     key in (:name, :parameters, :dimension) ||

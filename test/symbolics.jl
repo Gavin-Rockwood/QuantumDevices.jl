@@ -38,3 +38,60 @@
     @test_throws ArgumentError numerical(op(:x) / op(:z), operators)
     @test_throws ArgumentError numerical(H, (;))
 end
+
+@testset "Eager numerical scalar folding" begin
+    operators = (; x=sigmax(), z=sigmaz())
+    expr = 0.5 * param(:a) * op(:z) + op(:x)
+    @test numerical(val(3), operators, (;); scalar=2) == 6
+    @test numerical(expr, operators, (; a=3.0); scalar=2pi) ≈
+        2pi * numerical(expr, operators, (; a=3.0))
+    # Known products and denominators fold into the matrix; unresolved values stay dynamic.
+    dynamic = -param(:gain) * param(:drive) * op(:x) / param(:denominator) + 0.3op(:z)
+    params = (; gain=0.4, drive=t -> sin(t), denominator=2.0)
+    for scalar in (1, 2pi, 2im, 0)
+        H = numerical(dynamic, operators, params; scalar)
+        unresolved = numerical(dynamic, operators; scalar)
+        for t in (0.0, 0.3, 0.7)
+            expected = scalar * (-0.2sin(t)*sigmax() + 0.3sigmaz())
+            @test H(t) ≈ expected
+            @test unresolved((; gain=0.4, drive=sin(t), denominator=2.0), t) ≈ expected
+        end
+    end
+    # Additive constants inside nonlinear coefficients are not multiplicative factors.
+    nonlinear = cos(param(:drive) + param(:bias)) * op(:x)
+    H = numerical(nonlinear, operators, (; drive=t -> t, bias=0.3); scalar=2pi)
+    @test H(0.2) ≈ 2pi*cos(0.5)*sigmax()
+    component = make_qubit("q", 0.7)
+    model = make_model([component], val(0), (;))
+    @test numerical(component, component.hamiltonian; scalar=2pi) ≈
+        2pi*numerical(component, component.hamiltonian)
+    @test numerical(model, model.hamiltonian; scalar=2pi) ≈ 2pi*model.H
+end
+
+@testset "Dense numerical Hamiltonians" begin
+    operators = (; x=to_sparse(sigmax()), z=to_sparse(sigmaz()))
+    expression = 0.5param(:a)*op(:z) + op(:x)
+    original = numerical(expression, operators, (; a=0.3))
+    dense = numerical(expression, operators, (; a=0.3); dense=true, scalar=2pi)
+    @test !(original.data isa Matrix)
+    @test dense.data isa Matrix
+    @test dense ≈ 2pi*original
+    @test dense.dimensions == original.dimensions
+    @test numerical(val(3), operators, (;); dense=true) == 3
+    # Dynamic and unresolved parameters retain their usual calling convention.
+    for params in ((; a=t->sin(t)), (;))
+        H = numerical(expression, operators, params; dense=true, scalar=2pi)
+        for t in (0.0, 0.2)
+            @test H((; a=sin(t)), t) ≈ 2pi*(0.5sin(t)*sigmaz()+sigmax())
+        end
+    end
+    unresolved = numerical(expression, operators; dense=true)
+    @test unresolved((; a=0.3), 0.2) ≈ original
+    component = make_resonator("r", 0.7, 4)
+    model = make_model([component], val(0), (;))
+    local_H = numerical(component, component.hamiltonian; dense=true)
+    model_H = numerical(model, model.hamiltonian; dense=true)
+    @test local_H.data isa Matrix
+    @test model_H.data isa Matrix
+    @test model_H ≈ model.H
+end

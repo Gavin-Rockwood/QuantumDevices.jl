@@ -93,3 +93,9 @@ end
 These hooks are internal extension points and may change with the bundle format.
 They never evaluate stored source. Component persistence and symbolic-operation
 allowlists continue to apply independently.
+
+Custom envelopes with joins or discontinuities can define
+`envelope_tstops(shape, duration)` to return interior times relative to pulse
+onset. `pulse_tstops` validates the stops, adds the pulse boundaries, and shifts
+them by its delay. Carrier frequencies use cycles per unit time; IQ modulation
+uses the convention documented in the [pulse guide](../user_guide/pulses.md).

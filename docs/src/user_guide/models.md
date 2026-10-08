@@ -31,9 +31,24 @@ but is not a memory-use prediction for all subsequent solvers.
 | `hamiltonian` | Complete symbolic Hamiltonian |
 | `H` | Compiled sparse idle Hamiltonian |
 | `states` | Dressed states labeled by bare product-level tuples |
+| `spectrum` | Dressed energies in frequency units, with the same tuple keys as `states` |
 | `others` | Dressed energies with the same labels |
 | `confidence` | Continuity diagnostic for the state labels |
 | `gates` | Mutable dictionary of named gate objects |
+
+Read a dressed energy with the same label used for its state. Energies are in
+frequency units (`E/h`), so GHz when time is in ns:
+
+```@example models
+@assert Set(keys(model.spectrum)) == Set(keys(model.states))
+model.spectrum[(0, 0)]
+```
+
+The full tracking result also displays labeled energies and confidence:
+
+```@example models
+model.eigensystem
+```
 
 A complete operator word is multiplied in the parent basis **before** projection.
 Consequently, `numerical` of `op(:t_charge)^2` can differ from squaring

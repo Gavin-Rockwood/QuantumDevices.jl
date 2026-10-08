@@ -13,6 +13,13 @@
     @test model.coupling_parameters == (g = 0.03,)
     @test model.max_dimension == 10^4
     @test model.states === model.eigensystem.states
+    @test model.spectrum === model.eigensystem.others
+    @test hasproperty(model, :spectrum)
+    @test getpath(model, "spectrum") === model.spectrum
+    @test Set(keys(model.spectrum)) == Set(keys(model.states))
+    for (key, state) in model.states
+        @test norm(model.H * state - model.spectrum[key] * state) < 1e-10
+    end
     @test :confidence in propertynames(model)
     @test_throws ArgumentError model.nonexistent
 
@@ -20,6 +27,7 @@
     fresh_model2 = make_model([make_qubit("a", 1.2), b], interaction, (g = 0.03,))
     @test model2.H ≈ fresh_model2.H
     @test model2.parameters == fresh_model2.parameters
+    @test all(isapprox(energy, fresh_model2.spectrum[key]) for (key, energy) in model2.spectrum)
     for key in keys(model2.states)
         @test abs2(dot(model2.states[key], fresh_model2.states[key])) ≈ 1 atol = 1e-10
     end
@@ -45,6 +53,7 @@
     @test_throws ArgumentError setpath(model, "parameters", model.parameters)
     @test_throws ArgumentError setpath(model, "H", model.H)
     @test_throws ArgumentError setpath(model, "states", model.states)
+    @test_throws ArgumentError setpath(model, "spectrum", model.spectrum)
     @test_throws ArgumentError setpath(model, "components/1/name", "renamed")
     @test_throws ArgumentError setpath(model, "components", [a])
     @test_throws ArgumentError setpath(model, "components", [b, a])

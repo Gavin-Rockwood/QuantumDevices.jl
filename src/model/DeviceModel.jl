@@ -7,6 +7,8 @@ Coupled device built by [`make_model`](@ref). Exposes `components`,
 Hamiltonians and dimensional energy parameters use frequency units (`E/h`,
 cycles per unit time); `numerical` does not multiply them by `2π`.
 `states`, `others`, and `confidence` forward to its dressed-state tracking result.
+`spectrum` is the label-to-energy dictionary, sharing the same keys as `states`;
+energies are in frequency units, `E/h` (cycles per unit time).
 
 Use [`make_model`](@ref) rather than the positional field constructor. Derived
 matrices and eigensystems are reconstructed by supported [`setpath`](@ref) updates.

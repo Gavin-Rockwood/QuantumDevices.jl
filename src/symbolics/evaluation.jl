@@ -82,22 +82,65 @@ function _symbolic_terms(x)
     throw(ArgumentError("Unsupported operator expression: $x"))
 end
 
-function qobjevo_terms(x, fixed_params::Container, operators::Container)
+# Extract multiplicative constants before constructing time-dependent operators.
+# Constants inside nonlinear expressions stay in the coefficient callback.
+function _constant_coefficient(x, params)
+    return all(k -> _has(params, k) && !(_get(params, k) isa Function), parameter_keys(x))
+end
+
+function _split_coefficient(x, params)
+    _constant_coefficient(x, params) && return scalar_function(x, params)(params, 0.0), nothing
+    e = x.expr
+    if e[1] === :call && e[2] === (*)
+        factor = 1
+        residual = nothing
+        for arg in e[3:end]
+            constant, dynamic = _split_coefficient(arg, params)
+            factor *= constant
+            dynamic === nothing && continue
+            residual = residual === nothing ? dynamic : residual * dynamic
+        end
+        return factor, residual
+    elseif e[1] === :call && e[2] === (/) && _constant_coefficient(e[4], params)
+        factor, residual = _split_coefficient(e[3], params)
+        return factor / scalar_function(e[4], params)(params, 0.0), residual
+    elseif e[1] === :call && e[2] === (-) && length(e) == 3
+        factor, residual = _split_coefficient(e[3], params)
+        return -factor, residual
+    end
+    return 1, x
+end
+
+function qobjevo_terms(x, operators::Container)
     isempty(operators) && throw(ArgumentError("operators cannot be empty"))
     identity = first(values(operators))^0
-    return [(foldl((A, key) -> A * _get(operators, key), word; init = identity),
-             scalar_function(coefficient, fixed_params))
+    return [(foldl((A, key) -> A * _get(operators, key), word; init = identity), coefficient)
             for (word, coefficient) in _symbolic_terms(x)]
 end
 
-build_qobjevo(H, fixed_params::Container, operators::Container) =
-    QobjEvo(tuple(qobjevo_terms(H, fixed_params, operators)...))
+# Storage conversion happens at construction, never inside coefficient callbacks.
+_numerical_storage(x, ::Bool) = x
+_numerical_storage(x::QuantumObject, dense::Bool) =
+    dense && !(x.data isa Matrix) ? QuantumObject(Matrix(x.data), x.type, x.dimensions) : x
 
-function _evaluate_terms(terms, params::Container)
-    dynamic = any(terms) do (_, coefficient)
-        any(k -> !_has(params, k) || _get(params, k) isa Function, parameter_keys(coefficient))
+function build_qobjevo(H, fixed_params::Container, operators::Container; scalar::Number=1, dense::Bool=false)
+    result = _evaluate_terms(qobjevo_terms(H, operators), fixed_params; scalar, dense)
+    return result isa QobjEvo ? result : QobjEvo(result)
+end
+
+function _evaluate_terms(terms, params::Container; fixed=nothing, scalar::Number=1, dense::Bool=false)
+    constant = _numerical_storage(fixed, dense) # Cached terms are already scaled.
+    dynamic = []
+    for (operator, coefficient) in terms
+        factor, residual = _split_coefficient(coefficient, params)
+        matrix = _numerical_storage((scalar * factor) * operator, dense)
+        if residual === nothing
+            constant = constant === nothing ? matrix : constant + matrix
+        else
+            push!(dynamic, (matrix, scalar_function(residual, params)))
+        end
     end
-    compiled = [(O, scalar_function(c, params)) for (O, c) in terms]
-    dynamic && return QobjEvo(tuple(compiled...))
-    return sum(O * c(params, 0.0) for (O, c) in compiled)
+    isempty(dynamic) && return constant
+    terms_ = constant === nothing ? tuple(dynamic...) : (constant, dynamic...)
+    return QobjEvo(terms_)
 end

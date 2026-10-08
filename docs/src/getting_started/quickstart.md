@@ -28,7 +28,7 @@ to be resonant: this is an example of building a control, not an X-gate calibrat
 
 ```@example quickstart
 ψ0 = tensor(basis(2, 0), basis(2, 0))
-solution = sesolve(2pi * H, ψ0, range(0, 1; length=21); progress_bar=false)
+solution = sesolve(numerical(model, gate; scalar=2pi), ψ0, range(0, 1; length=21); progress_bar=false)
 @assert isapprox(norm(solution.states[end]), 1; atol=1e-6)
 length(solution.states)
 ```

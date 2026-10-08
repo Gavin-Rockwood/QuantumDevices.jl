@@ -51,3 +51,26 @@ struct Carrier{F,P<:NamedTuple} <: AbstractCarrier
     end
 end
 Carrier(f, parameters=(;); reference=:pulse) = Carrier(f, parameters, reference)
+
+"""
+    IQCarrier(frequency; phase=0, reference=:pulse)
+
+Real laboratory-frame modulation of a complex baseband envelope `I + im*Q`:
+`I*sin(θ) + Q*cos(θ)`, with `θ = 2π*frequency*clock + phase`.
+Frequency uses cycles per unit time, phase uses radians, and the clock follows
+`SineCarrier` conventions. With zero Q, this matches `SineCarrier` exactly.
+A `Pulse` using this carrier requires real amplitude and offset.
+`carrier_value` returns `sin(θ) + im*cos(θ)`, the two carrier quadratures.
+"""
+struct IQCarrier{F<:Real,P<:Real} <: AbstractCarrier
+    frequency::F
+    phase::P
+    reference::Symbol
+    function IQCarrier(frequency::F, phase::P, reference::Symbol) where {F<:Real,P<:Real}
+        _require_finite_real("frequency", frequency)
+        _require_finite_real("phase", phase)
+        _check_reference(reference)
+        new{F,P}(frequency, phase, reference)
+    end
+end
+IQCarrier(frequency; phase=0, reference=:pulse) = IQCarrier(frequency, phase, reference)

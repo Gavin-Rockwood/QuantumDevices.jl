@@ -11,7 +11,9 @@ abstract type AbstractPulse end
 A timed control, callable as `pulse(t)` with gate-relative time. Its active window
 is `[delay, delay + duration]`. Within it, the value is
 `offset + amplitude * envelope * carrier`; without a carrier the multiplier is one.
-Outside it the value is `offset`. Envelopes see time relative to pulse onset.
+For `IQCarrier`, the carrier mixes the real and imaginary envelope quadratures
+into a real signal instead. Outside it the value is `offset`.
+Envelopes see time relative to pulse onset.
 Duration is positive, delay nonnegative, and both are finite physical times.
 Nested envelope/carrier parameters and timing participate in calibration.
 """
@@ -24,6 +26,10 @@ struct Pulse{E<:AbstractEnvelope,C,A<:Number,O<:Number,D<:Real,L<:Real} <: Abstr
     delay::L
     function Pulse(envelope::E, carrier::C, amplitude::A, offset::O, duration::D, delay::L) where {E<:AbstractEnvelope,C,A<:Number,O<:Number,D<:Real,L<:Real}
         carrier isa Union{Nothing,AbstractCarrier} || throw(ArgumentError("carrier must be an AbstractCarrier or nothing"))
+        if carrier isa IQCarrier
+            _require_finite_real("IQ amplitude", amplitude)
+            _require_finite_real("IQ offset", offset)
+        end
         _require_finite("amplitude", amplitude)
         _require_finite("offset", offset)
         _require_finite_real("duration", duration) > 0 || throw(ArgumentError("Pulse duration must be positive"))
@@ -54,6 +60,6 @@ only times strictly inside the gate interval. `get_unitary(model, gate)` supplie
 these by default; direct `sesolve` calls should pass `tstops=pulse_tstops(gate)`
 to avoid skipping short delayed controls. Explicit solver `tstops` override the
 default; combine additional times with this list when needed. Custom envelopes
-with internal discontinuities must supply their own additional stop times.
+can implement `envelope_tstops` for internal joins or discontinuities.
 """
 function pulse_tstops end

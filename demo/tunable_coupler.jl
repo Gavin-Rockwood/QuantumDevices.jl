@@ -5,6 +5,8 @@
 # Figures and a model/ bundle are saved in a new temporary directory by default.
 # Include this file instead to work through its helpers interactively; inclusion
 # defines the module without running the simulation or writing figures.
+# For a step-by-step calibration and projected gate comparison, see
+# docs/src/tutorials/tunable_coupler_control.jl.
 
 module TunableCouplerDemo
 
@@ -108,14 +110,13 @@ end
 function swap_population(model; samples=121, abstol=1e-8, reltol=1e-8)
     gate = model.gates[:swap]
     times = range(0, gate.duration; length=samples)
-    result = sesolve(2pi * numerical(model, gate), model.states[(1, 0, 0)], times;
-        progress_bar=false, tstops=pulse_tstops(gate), abstol, reltol)
+    result = sesolve(model, gate, model.states[(1, 0, 0)], times;
+        progress_bar=false, abstol, reltol)
     SciMLBase.successful_retcode(result.retcode) || error("Flux-pulse solve failed")
     source = model.states[(1, 0, 0)]
     target = model.states[(0, 1, 0)]
-    return times,
-        [abs2(dot(source, state)) for state in result.states],
-        [abs2(dot(target, state)) for state in result.states]
+    amplitudes = state_amplitudes(Dict(:source => source, :target => target), result)
+    return times, abs2.(amplitudes[:source]), abs2.(amplitudes[:target])
 end
 
 # 6. Inspect the flux excursions and microwave coefficients.

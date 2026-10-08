@@ -47,6 +47,17 @@ QD.parameters(pulse::TestCalibrationEnvelope) =
     @test calibrated.parameters.drive.amplitude ≈ 0.25 atol = 1e-3
     @test gate.parameters.drive.amplitude == 0.1
 
+    dense_setup = CalibrationProblem(model, gate, ["drive/amplitude"], target;
+        dense=true, lb=[0.0], ub=[1.0])
+    @test dense_setup.problem.lb == [0.0]
+    @test dense_setup.problem.ub == [1.0]
+    # Use an unbounded problem with NelderMead, retaining the native solve interface.
+    dense_setup = CalibrationProblem(model, gate, ["drive/amplitude"], target; dense=true)
+    dense_solution = solve(dense_setup, OptimizationOptimJL.NelderMead(); maxiters=80)
+    @test dense_solution isa SciMLBase.AbstractOptimizationSolution
+    @test dense_solution.objective < 1e-7
+    @test calibrated_gate(dense_setup, dense_solution.u).parameters.drive.amplitude ≈ 0.25 atol=1e-3
+
     direct_solution = SciMLBase.solve(
         setup.problem,
         OptimizationOptimJL.NelderMead();
@@ -73,6 +84,8 @@ QD.parameters(pulse::TestCalibrationEnvelope) =
     )
     @test scalar_setup.problem.lb == [0.0]
     @test scalar_setup.problem.ub == [2.0]
+    @test_throws ArgumentError CalibrationProblem(model, scalar_gate, ["drive"], 1.25;
+        objective=scalar_objective, dense=true)
     @test scalar_setup.problem.f([1.25], SciMLBase.NullParameters()) == 0
 
     # Solver options and callbacks must behave exactly as on the wrapped problem.

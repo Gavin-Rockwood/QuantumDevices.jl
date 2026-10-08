@@ -1,5 +1,5 @@
 """
-    numerical(model::DeviceModel, expression::Sym)
+    numerical(model::DeviceModel, expression::Sym; scalar=1, dense=false)
 
 Evaluate a symbolic expression using the model's component operators, retained
 dimensions, and merged parameters. Operator names use the model's promoted names
@@ -8,20 +8,23 @@ projection, following the same rules as [`make_model`](@ref).
 
 For example, `numerical(model, model.hamiltonian)` reproduces `model.H`.
 Unresolved parameters produce a `QobjEvo`, as with the other symbolic overloads.
+`dense=true` materializes all operator matrices as dense matrices at construction.
+`scalar` is folded into operator matrices and constant coefficients at construction.
 """
-function numerical(model::DeviceModel, expression::Sym)
+function numerical(model::DeviceModel, expression::Sym; scalar::Number=1, dense::Bool=false)
     dims = [get(model.truncation_dimensions, c, c.dimension) for c in model.components]
-    return _evaluate_terms(_projected_terms(expression, model.components, dims), model.parameters)
+    return _evaluate_terms(_projected_terms(expression, model.components, dims), model.parameters; scalar, dense)
 end
 
 function Base.getproperty(model::DeviceModel, id::Symbol)
     hasfield(DeviceModel, id) && return getfield(model, id)
+    id === :spectrum && return getfield(model, :eigensystem).others
     hasfield(TrackingResult, id) && return getproperty(getfield(model, :eigensystem), id)
     throw(ArgumentError("Property $id not found in DeviceModel"))
 end
 
 Base.propertynames(::DeviceModel, private::Bool = false) =
-    (fieldnames(DeviceModel)..., fieldnames(TrackingResult)...)
+    (fieldnames(DeviceModel)..., :spectrum, fieldnames(TrackingResult)...)
 function _replace_property(model::DeviceModel, key::Symbol, value)
     if key === :gates
         fields = map(fieldnames(DeviceModel)) do name

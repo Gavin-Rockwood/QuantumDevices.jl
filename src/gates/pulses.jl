@@ -8,7 +8,8 @@ function _require_finite_real(name, value)
     return value
 end
 
-include("pulses/envelopes.jl")
+include("pulses/envelopes/envelopes.jl")
 include("pulses/carriers.jl")
 include("pulses/pulse.jl")
+include("pulses/display.jl")
 include("pulses/overloads.jl")

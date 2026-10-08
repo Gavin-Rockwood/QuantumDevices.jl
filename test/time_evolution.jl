@@ -24,6 +24,9 @@
     short = Pulse(Constant(); duration=0.01, delay=0.5, amplitude=25.0)
     delayed_gate = DeviceGate((drive=short,), param(:drive)*op(:q_x), 1.0)
     @test pulse_tstops(delayed_gate) == [0.5, 0.51]
+    evolved = sesolve(zero_model, delayed_gate, basis(2, 0), [0.0, 1.0];
+        progress_bar=false, abstol=1e-10, reltol=1e-10)
+    @test last(evolved.states) ≈ -im*basis(2, 1) atol=1e-6
     @test get_unitary(zero_model, delayed_gate; abstol=1e-10, reltol=1e-10) ≈ target atol=1e-6
     @test get_unitary(zero_model, delayed_gate; tstops=[0.5, 0.505, 0.51],
         abstol=1e-10, reltol=1e-10) ≈ target atol=1e-6

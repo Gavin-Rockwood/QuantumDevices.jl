@@ -74,3 +74,53 @@ function _restore_control(::Val{:custom_carrier}, data, directory)
     callable = JLD2.load_object(_bundle_child(directory, data["artifact"]))
     return Carrier(callable, f.parameters; reference=f.reference)
 end
+
+# Analytic envelopes store only their explicit constructor fields.
+_control_record(::Cosine, directory, index) = Dict("type" => "cosine")
+_control_record(::Blackman, directory, index) = Dict("type" => "blackman")
+_restore_control(::Val{:cosine}, data, directory) = Cosine()
+_restore_control(::Val{:blackman}, data, directory) = Blackman()
+function _control_record(shape::Slepian, directory, index)
+    return Dict("type" => "slepian", "fields" => Dict(
+        "time_bandwidth" => _encode_value(shape.time_bandwidth),
+        "samples" => _encode_value(shape.samples)))
+end
+function _restore_control(::Val{:slepian}, data, directory)
+    f = _restore_control_fields(data, directory)
+    return Slepian(f.time_bandwidth; samples=f.samples)
+end
+_control_record(x::GaussianZero, directory, index) = _typed_control_record("gaussian_zero", x, directory, index)
+function _restore_control(::Val{:gaussian_zero}, data, directory)
+    f = _restore_control_fields(data, directory)
+    return GaussianZero(f.sigma)
+end
+_control_record(x::GaussianSquare, directory, index) = _typed_control_record("gaussian_square", x, directory, index)
+function _restore_control(::Val{:gaussian_square}, data, directory)
+    f = _restore_control_fields(data, directory)
+    return GaussianSquare(f.sigma; ramp_time=f.ramp_time)
+end
+_control_record(x::Sech, directory, index) = _typed_control_record("sech", x, directory, index)
+_control_record(x::Bump, directory, index) = _typed_control_record("bump", x, directory, index)
+function _restore_control(::Val{:bump}, data, directory)
+    f = _restore_control_fields(data, directory)
+    return Bump(f.k; center=f.center)
+end
+function _restore_control(::Val{:sech}, data, directory)
+    f = _restore_control_fields(data, directory)
+    return Sech(f.width; center=f.center)
+end
+_control_record(x::ErfSquare, directory, index) = _typed_control_record("erf_square", x, directory, index)
+function _restore_control(::Val{:erf_square}, data, directory)
+    f = _restore_control_fields(data, directory)
+    return ErfSquare(f.sigma; ramp_time=f.ramp_time)
+end
+_control_record(x::DRAG, directory, index) = _typed_control_record("drag", x, directory, index)
+function _restore_control(::Val{:drag}, data, directory)
+    f = _restore_control_fields(data, directory)
+    return DRAG(f.sigma; beta=f.beta)
+end
+_control_record(x::IQCarrier, directory, index) = _typed_control_record("iq_carrier", x, directory, index)
+function _restore_control(::Val{:iq_carrier}, data, directory)
+    f = _restore_control_fields(data, directory)
+    return IQCarrier(f.frequency; phase=f.phase, reference=f.reference)
+end

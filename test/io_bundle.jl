@@ -138,3 +138,34 @@ end
         end
     end
 end
+
+@testset "Portable quantum-control envelope library" begin
+    shapes = (GaussianZero(0.2), GaussianSquare(0.1), Sech(0.2; center=0.4),
+        Cosine(), Blackman(), Bump(2.5; center=0.4), Bump(), ErfSquare(0.1), Slepian(2.5; samples=33), DRAG(0.2; beta=0.03))
+    model = make_model([make_qubit("q", 2.0)], val(0), (;))
+    for (j, shape) in enumerate(shapes)
+        drive = Pulse(shape; duration=1.0, delay=0.1, amplitude=0.1,
+            carrier=IQCarrier(2.0; phase=0.3, reference=:gate))
+        model.gates[Symbol("drive_",j)] = DeviceGate((; drive), param(:drive)*op(:q_x))
+    end
+    mktempdir() do dir
+        root = save(joinpath(dir, "device"), model)
+        restored = load(root)
+        for key in keys(model.gates)
+            a = model.gates[key].parameters.drive
+            b = restored.gates[key].parameters.drive
+            @test b isa Pulse
+            @test typeof(a.envelope) == typeof(b.envelope)
+            @test b.carrier isa IQCarrier
+            @test a.(range(0, 1.2; length=25)) ≈ b.(range(0, 1.2; length=25))
+            @test parameters(a) == parameters(b)
+            @test pulse_tstops(a) ≈ pulse_tstops(b)
+        end
+        records = String[]
+        for (folder, _, files) in walkdir(root), name in files
+            @test !endswith(name, ".jld2")
+            endswith(name, ".json") && push!(records, read(joinpath(folder,name), String))
+        end
+        @test !any(s -> occursin("weights", s), records)
+    end
+end

@@ -9,7 +9,9 @@ abstract type AbstractCalibrationSetup end
 
 """
     CalibrationProblem(problem, rebuild)
-    CalibrationProblem(model, gate, names, target; objective=gate_infidelity, kwargs...)
+    CalibrationProblem(model, gate, names, target; objective=gate_infidelity,
+        states=nothing, output_states=states, frame=:lab, include_phases=true, energy_shift=:auto, dense=false,
+        evolution_kwargs=(;), kwargs...)
 
 Calibration problem containing a standard `SciMLBase.OptimizationProblem`
 and `rebuild(values) -> DeviceGate`. Select parameters with
@@ -85,7 +87,9 @@ function _with_calibration_values(gate::DeviceGate, paths, values)
 end
 
 """
-    CalibrationProblem(model, gate, names, target; objective=gate_infidelity, kwargs...)
+    CalibrationProblem(model, gate, names, target; objective=gate_infidelity,
+        states=nothing, output_states=states, frame=:lab, include_phases=true, energy_shift=:auto, dense=false,
+        evolution_kwargs=(;), kwargs...)
 
 Build a [`CalibrationProblem`](@ref) wrapping a standard
 `SciMLBase.OptimizationProblem` and an immutable gate rebuilder.
@@ -93,20 +97,41 @@ Select parameters using names from `parameters(gate)`, e.g. `["drive/amplitude"]
 Additional keyword arguments (including `lb` and `ub`) are forwarded to
 `OptimizationProblem`. The objective has signature `(model, candidate_gate, target)`
 and must return a scalar loss. The default compares full retained-space unitaries.
+Supply `states` to compare a selected gate subspace; `output_states` defaults to
+that basis. `frame=:interaction` removes idle evolution before comparison.
+`include_phases=false` compares probabilities instead of coherent gate matrices.
+`energy_shift=:auto` caches the mean idle energy of the input states, subtracts
+it during integration, and restores global phase before gate comparison.
+An explicit offset uses frequency units; `energy_shift=0` disables centering.
+`dense=true` constructs dense Hamiltonian matrices, including the cached fixed terms.
+The default `dense=false` preserves their usual storage.
+`evolution_kwargs` forwards native evolution options. These built-in options
+cannot be combined with a custom objective. Operators, fixed terms, bases, and
+target validation are prepared once per problem, preserving sparse storage.
 
 Selected names must be a nonempty collection of unique discovery names with finite
 real values. The input gate is unchanged. Solve with
 `solve(problem, algorithm; kwargs...)`; solver options are forwarded to SciML.
 """
 function CalibrationProblem(model::DeviceModel, gate::DeviceGate, names, target;
-                             objective = gate_infidelity, kwargs...)
+    objective=gate_infidelity, states=nothing, output_states=states, frame=:lab,
+    include_phases::Bool=true, energy_shift=:auto, dense::Bool=false, evolution_kwargs=(;), kwargs...)
     names isa AbstractString && throw(ArgumentError("Pass a list of parameter names, such as [\"drive/amplitude\"]"))
     names = collect(names)
     isempty(names) && throw(ArgumentError("At least one calibration parameter is required"))
     allunique(names) || throw(ArgumentError("Calibration parameter names must be unique"))
     initial_values, paths = _selected_calibration_parameters(gate, names)
     rebuild = values -> _with_calibration_values(gate, paths, values)
-    loss(values, _) = objective(model, rebuild(values), target)
+    if objective === gate_infidelity
+        prepared = _prepared_gate_objective(model, gate, target;
+            states, output_states, frame, include_phases, energy_shift, dense, evolution_kwargs)
+        loss = (values, _) -> prepared(rebuild(values))
+    else
+        (states === nothing && output_states === nothing && frame === :lab &&
+            include_phases && energy_shift === :auto && !dense && isempty(evolution_kwargs)) || throw(ArgumentError(
+            "Custom objectives cannot be combined with built-in gate-evolution options"))
+        loss = (values, _) -> objective(model, rebuild(values), target)
+    end
     problem = SciMLBase.OptimizationProblem(loss, initial_values; kwargs...)
     return CalibrationProblem(problem, rebuild)
 end

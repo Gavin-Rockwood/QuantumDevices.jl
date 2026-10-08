@@ -20,14 +20,10 @@ The ideal zero-idle Hamiltonian is `A X`, so `U(T)=exp(-2π*im*A*T*X)`.
 The target is reached at `A*T=1/4` up to global phase.
 
 ```@example calibration
-errors = Float64[]
-objective = function (m, gate, target)
-    value = gate_infidelity(m, gate, target)
-    push!(errors, value)
-    value
-end
-problem = CalibrationProblem(model, trial, ["drive/amplitude"], target; objective)
-solution = solve(problem, OptimizationOptimJL.NelderMead(); maxiters=80)
+states = [basis(2, 0), basis(2, 1)]
+problem = CalibrationProblem(model, trial, ["drive/amplitude"], target; states, dense=true)
+solution = solve(problem, OptimizationOptimJL.NelderMead(); maxiters=80, store_trace=true)
+errors = OptimizationOptimJL.Optim.f_trace(solution.original)
 calibrated = calibrated_gate(problem, solution.u)
 @assert SciMLBase.successful_retcode(solution.retcode)
 @assert solution.objective < 1e-7
@@ -43,7 +39,7 @@ names cannot be optimized by this wrapper.
 
 ```@example calibration
 fig = Figure(size=(700, 320))
-ax = Axis(fig[1, 1], xlabel="Objective evaluation", ylabel="Best process infidelity",
+ax = Axis(fig[1, 1], xlabel="Optimizer iteration", ylabel="Best process infidelity",
           yscale=log10)
 lines!(ax, eachindex(errors), max.(accumulate(min, errors), 1e-14))
 fig
@@ -61,6 +57,24 @@ remain available for compatibility.
 
 Custom objectives have signature `objective(model, candidate_gate, target)` and
 return a scalar loss. They may represent a subspace target or leakage penalty,
-but their definition and validation are your responsibility. The built-in
-`gate_infidelity` compares full retained-space unitaries, so it includes all levels
-kept by the model. See [fidelity conventions](../explanations/conventions.md).
+but their definition and validation are your responsibility. The built-in objective evolves the full retained space by default.
+Supply `states=[ket0, ket1, ...]` to evolve just those ordered columns and compare
+a target matrix in that basis. `output_states` defaults to the same basis.
+
+`include_phases=true` includes relative phases and ignores global phase. Setting
+it to `false` matches transition probabilities; leakage still lowers the score.
+The default `frame=:lab` preserves lab phases. Explicit `frame=:interaction`
+removes idle evolution from the final comparison and leaves integration unchanged.
+Pass native evolution tolerances through `evolution_kwargs=(; abstol=1e-8, reltol=1e-8)`. See [fidelity conventions](../explanations/conventions.md).
+
+Calibration automatically subtracts the mean idle energy of the selected input
+states during integration. The offset is cached when `CalibrationProblem` is
+constructed, and global phase is restored before comparison. This changes neither
+the lab-frame target nor the `frame=:interaction` convention. Use `energy_shift=0`
+to disable centering, or supply a fixed offset in frequency units.
+
+Set `dense=true` directly on `CalibrationProblem` to use dense Hamiltonian matrices
+for every candidate. This includes the fixed matrices cached when the problem is
+constructed. The default `dense=false` preserves the usual storage. Dense storage
+can be faster for small Hamiltonians with relatively few zeros; benchmark the
+choice on your model. The `solve` call and native SciML options stay the same.

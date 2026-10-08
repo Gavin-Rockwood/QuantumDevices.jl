@@ -16,6 +16,14 @@ Literate.markdown(
     codefence="```@example mode3" => "```",
 )
 
+Literate.markdown(
+    joinpath(DOCS_ROOT, "src", "tutorials", "tunable_coupler_control.jl"),
+    joinpath(DOCS_ROOT, "src", "tutorials");
+    name="tunable_coupler_control", execute=false, credit=false,
+    codefence="```@example coupler" => "```",
+    postprocess=content -> rstrip(content) * "\n",
+)
+
 function documentation_versions()
     repository = normpath(joinpath(DOCS_ROOT, ".."))
     tags = split(read(`git -C $repository tag --list`, String), '\n'; keepempty=false)
@@ -63,6 +71,7 @@ const PAGES = [
         "Components and models" => "reference/models.md",
         "Pulses, gates, calibration" => "reference/gates.md",
         "Tracking and paths" => "reference/tracking.md",
+        "Spectral tools" => "reference/spectral_tools.md",
         "Persistence" => "reference/persistence.md",
     ],
     "Development" => [

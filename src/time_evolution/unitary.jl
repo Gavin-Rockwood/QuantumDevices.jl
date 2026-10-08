@@ -5,18 +5,23 @@
 Evolve the identity over `[0, duration]` and return the final retained-space
 propagator. `H` is a static quantum operator or `QobjEvo` in frequency units
 (cycles per unit time), e.g. GHz for time in ns. Evolution explicitly uses
-`2π * H` in QuantumToolbox `sesolve`. Duration must be finite and positive.
+`2π * H` in QuantumToolbox `sesolve`. The model/gate overload folds `2π`
+into matrices using `numerical(model, gate; scalar=2pi)`.
+Duration must be finite and positive.
 
 Solver kwargs pass through, with `progress_bar=false` by default. Unsuccessful
 retcodes raise an error. The model/gate overload supplies `pulse_tstops(gate)`
 by default so adaptive stepping resolves delayed controls. No rotating frame or rotating-wave approximation is applied.
 """
-function get_unitary(H::AbstractQuantumObject, duration::Real; kwargs...)
+get_unitary(H::AbstractQuantumObject, duration::Real; kwargs...) =
+    _get_unitary_angular(2pi * H, duration; kwargs...)
+
+function _get_unitary_angular(H::AbstractQuantumObject, duration::Real; kwargs...)
     isfinite(duration) && duration > 0 ||
         throw(ArgumentError("Unitary evolution requires a finite positive duration"))
     initial = qeye_like(H isa QobjEvo ? H(0.0) : H)
     options = merge((; progress_bar=false), (; kwargs...))
-    solution = sesolve(2pi * H, initial, [zero(duration), duration]; options...)
+    solution = sesolve(H, initial, [zero(duration), duration]; options...)
     SciMLBase.successful_retcode(solution.retcode) ||
         error("Unitary evolution failed with return code $(solution.retcode)")
     return solution.states[end]

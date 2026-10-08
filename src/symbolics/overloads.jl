@@ -67,15 +67,20 @@ function Base.show(io::IO, ::MIME"text/plain", x::Sym)
 end
 
 """
-    numerical(H::Sym, operators[, params])
+    numerical(H::Sym, operators[, params]; scalar=1, dense=false)
 
 Evaluate a symbolic expression. Complete scalar parameters produce a static result;
 missing or function-valued parameters produce a `QobjEvo`, callable as `(params, t)`.
 Function-valued parameters receive time as their single argument.
+`dense=true` materializes every operator matrix as a dense `Matrix` during
+construction. `dense=false` preserves the usual storage; scalar results stay scalar.
+`scalar` scales static results and is folded into operator matrices before
+constructing a `QobjEvo`, together with multiplicative constant coefficients.
 """
-function numerical(H::Sym, operators::Container, params::Container)
+function numerical(H::Sym, operators::Container, params::Container; scalar::Number=1, dense::Bool=false)
     required = parameter_keys(H)
     dynamic = any(k -> !_has(params, k) || _get(params, k) isa Function, required)
-    return dynamic ? build_qobjevo(H, params, operators) : numerical_static(H, params, operators)
+    return dynamic ? build_qobjevo(H, params, operators; scalar, dense) : _numerical_storage(scalar * numerical_static(H, params, operators), dense)
 end
-numerical(H::Sym, operators::Container) = build_qobjevo(H, NamedTuple(), operators)
+numerical(H::Sym, operators::Container; scalar::Number=1, dense::Bool=false) =
+    build_qobjevo(H, NamedTuple(), operators; scalar, dense)

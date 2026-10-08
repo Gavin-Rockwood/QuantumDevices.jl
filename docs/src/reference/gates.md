@@ -15,11 +15,21 @@ DeviceGate
 AbstractEnvelope
 Constant
 Gaussian
+GaussianZero
+GaussianSquare
+Sech
+Cosine
+Blackman
+Bump
+ErfSquare
+Slepian
+DRAG
 SineSquared
 RampedFlattop
 Envelope
 envelope_value
 validate_envelope
+envelope_tstops
 ```
 
 ## Carriers
@@ -27,6 +37,7 @@ validate_envelope
 ```@docs
 AbstractCarrier
 SineCarrier
+IQCarrier
 Carrier
 carrier_value
 ```
@@ -35,6 +46,11 @@ carrier_value
 
 ```@docs
 get_unitary
+QuantumDevices.sesolve(::DeviceModel, ::DeviceGate, ::Union{QuantumDevices.QuantumObject,AbstractVector{<:QuantumDevices.QuantumObject}}, ::AbstractVector)
+get_gate_matrix
+state_amplitudes
+plot_trajectories
+plot_trajectories!
 gate_unitary
 unitary_fidelity
 unitary_infidelity

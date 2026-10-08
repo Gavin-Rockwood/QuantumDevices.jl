@@ -1,33 +1,20 @@
-envelope_value(::Constant, t, duration) = one(t)
-function envelope_value(shape::Gaussian, t, duration)
-    center = shape.center === nothing ? duration / 2 : shape.center
-    return exp(-(t - center)^2 / (2shape.sigma^2))
-end
-function validate_envelope(shape::Gaussian, duration)
-    center = shape.center === nothing ? duration / 2 : shape.center
-    0 <= center <= duration || throw(ArgumentError("Gaussian center must lie inside the pulse window"))
-    return nothing
-end
-envelope_value(::SineSquared, t, duration) =
-    t == 0 || t == duration ? zero(t) : sinpi(t / duration)^2
-envelope_value(shape::Envelope, t, duration) = shape.callable(shape.parameters, t, duration)
-function validate_envelope(shape::RampedFlattop, duration)
-    shape.rise_time + shape.fall_time <= duration || throw(ArgumentError("Rise and fall must fit inside the pulse duration"))
-    return nothing
-end
-function envelope_value(shape::RampedFlattop, t, duration)
-    if shape.rise_time > 0 && t < shape.rise_time
-        return _ramp_value(shape.ramp_up, t / shape.rise_time, shape.split_up, true)
-    elseif shape.fall_time > 0 && t > duration - shape.fall_time
-        return _ramp_value(shape.ramp_down, (duration - t) / shape.fall_time, shape.split_down, false)
-    end
-    return one(t)
-end
-(shape::AbstractEnvelope)(t, duration) = _require_finite("Envelope value", envelope_value(shape, t, duration))
 carrier_value(c::SineCarrier, local_time, gate_time) =
     sinpi(2c.frequency * (c.reference === :pulse ? local_time : gate_time) + c.phase / pi)
 carrier_value(c::Carrier, local_time, gate_time) =
     c.callable(c.parameters, c.reference === :pulse ? local_time : gate_time)
+
+function carrier_value(c::IQCarrier, local_time, gate_time)
+    clock = c.reference === :pulse ? local_time : gate_time
+    angle = 2c.frequency*clock+c.phase/pi
+    return complex(sinpi(angle), cospi(angle))
+end
+_modulate_envelope(::Nothing, shape, local_time, gate_time) = shape
+_modulate_envelope(c::AbstractCarrier, shape, local_time, gate_time) =
+    shape*_require_finite("Carrier value", carrier_value(c, local_time, gate_time))
+function _modulate_envelope(c::IQCarrier, shape, local_time, gate_time)
+    quadratures = _require_finite("Carrier value", carrier_value(c, local_time, gate_time))
+    return real(shape)*real(quadratures)+imag(shape)*imag(quadratures)
+end
 
 function (pulse::Pulse)(t::Real)
     _require_finite_real("time", t)
@@ -36,9 +23,8 @@ function (pulse::Pulse)(t::Real)
     # Use the exact stored duration at the end even after floating-point addition.
     t == pulse.delay + pulse.duration && (local_time = pulse.duration)
     shape = pulse.envelope(local_time, pulse.duration)
-    carrier = pulse.carrier === nothing ? 1 :
-        _require_finite("Carrier value", carrier_value(pulse.carrier, local_time, t))
-    return _require_finite("Pulse value", pulse.offset + pulse.amplitude * shape * carrier)
+    signal = _modulate_envelope(pulse.carrier, shape, local_time, t)
+    return _require_finite("Pulse value", pulse.offset + pulse.amplitude * signal)
 end
 
 function _add_control_parameter!(result, name, path, value)
@@ -87,10 +73,17 @@ end
 
 pulse_tstops(pulse::AbstractPulse) = [pulse.delay, pulse.delay + pulse.duration]
 function pulse_tstops(pulse::Pulse)
-    shape = pulse.envelope
-    if shape isa RampedFlattop
-        return sort!(unique([pulse.delay, pulse.delay + shape.rise_time,
-            pulse.delay + pulse.duration - shape.fall_time, pulse.delay + pulse.duration]))
-    end
-    return [pulse.delay, pulse.delay + pulse.duration]
+    stops = envelope_tstops(pulse.envelope, pulse.duration)
+    all(t -> t isa Real && isfinite(t), stops) ||
+        throw(ArgumentError("Envelope stops must be finite real times"))
+    return sort!(unique(vcat([pulse.delay, pulse.delay+pulse.duration],
+        [pulse.delay+t for t in stops if 0 < t < pulse.duration])))
+end
+
+Base.show(io::IO, pulse::Pulse) = _show_pulse_summary(io, pulse)
+
+function Base.show(io::IO, ::MIME"text/plain", pulse::Pulse)
+    get(io, :compact, false) && return show(io, pulse)
+    println(io, "Pulse")
+    _show_pulse_details(io, pulse)
 end
