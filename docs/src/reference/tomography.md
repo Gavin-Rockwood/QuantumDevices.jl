@@ -3,7 +3,6 @@
 ```@docs
 Measurement
 SequenceData
-ModelDatum
 ModelTomographyProblem
 predict_sequence
 predict_sequences
@@ -13,9 +12,18 @@ tomography_residuals
 
 ## Data and losses
 
-`ModelDatum` predictions must return finite real scalars. Observations and
-uncertainties use the same units as the prediction; errors are independent.
-`loss=:auto` and `:least_squares` both minimize uncertainty-scaled scalar residuals.
+Scalar fitting uses `ModelTomographyProblem(model, paths; predict, observed,
+uncertainty=1)`. `observed` must be a nonempty NamedTuple. `predict(model)` is
+called once per evaluation and must return a NamedTuple with exactly the same
+names; ordering may differ. Each value must be a finite real scalar. Residuals
+follow the observation order.
+
+`uncertainty` is a common positive scalar, or a NamedTuple with one positive
+uncertainty for every observation. For example, use
+`uncertainty=(ge=0.001, ef=0.002)` with `observed=(ge=4.8, ef=4.6)`.
+The default of 1 gives unweighted least squares. Predictions, observations, and
+uncertainties must use the same units; errors are independent.
+`loss=:auto` and `:least_squares` both minimize uncertainty-scaled residuals.
 
 For `SequenceData`, counts infer their shot total. Probabilities may include
 `shots` without rounding into reconstructed counts. Keep observations in the
@@ -27,7 +35,7 @@ Likelihood omits parameter-independent constants and uses `probability_floor`
 only inside logarithms. Zero-count terms contribute zero.
 
 `tomography_residuals(setup, values)` is available for least squares; its squared
-norm equals the objective. Scalar and sequence records cannot share one problem.
+norm equals the objective. Scalar fitting and sequence fitting use separate constructors.
 
 ## Measurements and prediction
 

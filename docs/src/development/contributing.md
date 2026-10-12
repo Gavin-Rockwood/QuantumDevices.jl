@@ -30,10 +30,9 @@ generates Markdown, runs `npm ci`, and builds VitePress. It does not deploy by
 default. `DOCS_DEPLOY=true` enables deployment and is set only in the documentation
 workflow; Documenter also checks the GitHub event before publishing.
 
-For editing, regenerate the Markdown then start the VitePress development server:
+For live editing, run these commands from the repository root:
 
 ```sh
-DOCS_MARKDOWN_ONLY=true julia --project=docs docs/make.jl
 npm --prefix docs ci
 npm --prefix docs run docs:dev
 ```
@@ -43,8 +42,17 @@ The transmon–resonator tutorial is generated with Literate.jl from
 file; the build generates the Markdown page and executes its code blocks.
 Do not edit the generated `docs/src/tutorials/transmon_resonator_control.md`.
 
-Re-run generation after changing tutorial scripts, source Markdown, or docstrings.
-The scripts all use `docs/build/.documenter`; do not run VitePress against the source directory.
+`docs:dev` watches `docs/src` and regenerates Markdown in Documenter's draft mode
+before refreshing the browser. Julia formats the documentation, but examples and
+doctests do not execute; calculated outputs and plots are omitted. Save a source
+file and allow generation to finish before expecting the update. Stop with Ctrl+C.
+From inside `docs/`, use `npm run docs:dev` instead.
+
+To serve the last generated docs without regeneration, use
+`npm --prefix docs run docs:serve`. This watches `docs/build/.documenter` only.
+Run the full Julia build above when you need updated example results or docstrings
+from package source. `DOCS_MARKDOWN_ONLY=true` skips the website build but still
+executes examples unless you also set `DOCS_DRAFT=true`.
 
 ## Source organization
 
@@ -77,3 +85,5 @@ commit with `v` followed by the project version (for example,
 beta releases as prereleases. The tag build publishes its own docs, while `dev`
 continues to publish at `/dev/`. After release, advance `dev` to the next
 development version.
+
+Docs watcher verification marker 20261008.

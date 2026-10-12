@@ -1,10 +1,14 @@
 """
+    ModelTomographyProblem(model, paths; predict, observed, uncertainty=1, loss=:auto, kwargs...)
     ModelTomographyProblem(model, data, paths; loss=:auto,
         probability_floor=1e-12, evolution_kwargs=(; abstol=1e-8, reltol=1e-8), threaded::Bool=false, kwargs...)
 
 Fit finite real model/gate scalars selected by writable slash paths. Accepts
-either [`SequenceData`](@ref) records or [`ModelDatum`](@ref) scalar observations;
-the two types cannot be mixed in one fit. Exposes a
+[`SequenceData`](@ref) records, or a scalar `predict(model)` function and an
+`observed` NamedTuple. Scalar predictions must return a NamedTuple with exactly
+the observation names, in any order. Values must be finite real scalars.
+`uncertainty` is a positive scalar (default 1) or a NamedTuple with those names.
+Residuals follow observation order. Exposes a
 standard SciML optimization `.problem`, immutable `.rebuild(values)`, and `.paths`.
 Solve using `solve(setup, algorithm; kwargs...)`; no optimizer is selected here.
 Candidate values are applied together: each changed component is reconstructed
@@ -15,7 +19,7 @@ distinct writable destinations; aliases and overlapping paths are rejected.
 `loss=:auto` selects `:likelihood` when every record has shots and `:least_squares`
 when none does. Mixed shot-qualified sequence datasets require explicit
 `:least_squares`. Scalar datasets always use least squares, with residuals
-`(prediction(model) - value) / uncertainty`. They reconstruct each candidate
+`(predicted - observed) / uncertainty`. They reconstruct each candidate
 once and evaluate all predictions without gate evolution.
 Likelihood is summed multinomial negative log likelihood without constants;
 probabilities with shots use `-N*sum(f .* log(p))`, without rounding counts.
@@ -54,25 +58,41 @@ function _tomography_parameter_setup(model, paths)
     return paths, initial, rebuild
 end
 
+function ModelTomographyProblem(model::DeviceModel, paths; predict, observed, uncertainty=1,
+    loss=:auto, threaded::Bool=false, evolution_kwargs=(;), kwargs...)
+    paths, initial, rebuild = _tomography_parameter_setup(model, paths)
+    observed isa NamedTuple && !isempty(observed) ||
+        throw(ArgumentError("Observed values must be a nonempty NamedTuple"))
+    names = keys(observed)
+    targets = _tomography_named_values(observed, names, "Observation")
+    scales = if uncertainty isa NamedTuple
+        _tomography_named_values(uncertainty, names, "Uncertainty")
+    else
+        _tomography_real_scalar(uncertainty) && uncertainty > 0 ||
+            throw(ArgumentError("Uncertainty for $(names) must be a finite positive real scalar"))
+        map(_ -> uncertainty, names)
+    end
+    for (name, scale) in zip(names, scales)
+        scale > 0 || throw(ArgumentError("Uncertainty for $name must be positive"))
+    end
+    loss in (:auto, :least_squares) || throw(ArgumentError("Scalar fits require least squares"))
+    residuals = function(values)
+        predictions = _tomography_named_values(predict(rebuild(values)), names, "Prediction")
+        return collect((predictions .- targets) ./ scales)
+    end
+    residuals(initial)
+    objective = (values, _) -> sum(abs2, residuals(values))
+    problem = SciMLBase.OptimizationProblem(objective, initial; kwargs...)
+    return ModelTomographyProblem(problem, rebuild, residuals, paths)
+end
+
 function ModelTomographyProblem(model::DeviceModel, data, paths; loss=:auto,
     probability_floor=1e-12, evolution_kwargs=(; abstol=1e-8, reltol=1e-8), threaded::Bool=false, kwargs...)
     paths, initial, rebuild = _tomography_parameter_setup(model, paths)
     data = collect(data)
     !isempty(data) || throw(ArgumentError("A tomography problem needs observations"))
-    if all(d -> d isa ModelDatum, data)
-        loss in (:auto, :least_squares) || throw(ArgumentError("ModelDatum observations require least squares"))
-        residuals = function(values)
-            predictions = _tomography_scalar_predictions(rebuild(values), data)
-            return [(prediction - datum.value) / datum.uncertainty
-                for (prediction, datum) in zip(predictions, data)]
-        end
-        residuals(initial)
-        objective = (values, _) -> sum(abs2, residuals(values))
-        problem = SciMLBase.OptimizationProblem(objective, initial; kwargs...)
-        return ModelTomographyProblem(problem, rebuild, residuals, paths)
-    end
     all(d -> d isa SequenceData, data) ||
-        throw(ArgumentError("Use only ModelDatum or only SequenceData records; fit scalar constraints first, then refine with sequence data"))
+        throw(ArgumentError("Expected SequenceData records; for scalar fits use ModelTomographyProblem(model, paths; predict, observed)"))
     qualified = [d.shots !== nothing for d in data]
     if loss === :auto
         loss = all(qualified) ? :likelihood : !any(qualified) ? :least_squares :
@@ -118,7 +138,7 @@ reconstructed_model(problem::ModelTomographyProblem, values) = problem.rebuild(v
     tomography_residuals(problem::ModelTomographyProblem, values)
 
 Return prediction-minus-observation residuals in dataset and outcome order.
-For [`ModelDatum`](@ref), each residual is divided by its uncertainty.
+For scalar fits, residuals follow observation order and are divided by uncertainty.
 Only available for least squares; their squared norm equals the scalar objective.
 External residual-based solvers may call this function directly.
 """

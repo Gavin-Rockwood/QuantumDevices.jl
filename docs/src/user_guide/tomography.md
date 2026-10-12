@@ -24,8 +24,9 @@ frequency with the transmon in g, and the conditional cavity shift
 transmon level `j` and cavity occupation `n`. Transmon anharmonicity
 `f_ef − f_ge` is a derived quantity, rather than another independent input.
 
-`ModelDatum` compares a scalar prediction against an observed value. Its residual
-is `(prediction - value) / uncertainty`; `uncertainty=0.001` below means 1 MHz.
+`predict(model)` returns named quantities. The problem matches them with the
+names in `observed`. Each residual is `(prediction - observation) / uncertainty`;
+`uncertainty=0.001` below means 1 MHz.
 The scalar fit uses the sum of squared residuals and does not evolve any gates.
 `real(...)` removes imaginary numerical roundoff from the Hermitian spectrum.
 
@@ -38,31 +39,25 @@ function cavity_transmon_model(EC, EJ, g, cavity_frequency)
         truncation_dimensions=Dict(transmon => 4))
 end
 
-quantities = [
-    m -> real(m.spectrum[(1, 0)] - m.spectrum[(0, 0)]),
-    m -> real(m.spectrum[(2, 0)] - m.spectrum[(1, 0)]),
-    m -> real(m.spectrum[(0, 1)] - m.spectrum[(0, 0)]),
-    m -> real((m.spectrum[(1, 1)] - m.spectrum[(1, 0)]) -
-              (m.spectrum[(0, 1)] - m.spectrum[(0, 0)])),
-]
-
-# Replace these four values with measured frequencies, in GHz.
-reference = cavity_transmon_model(0.2, 10.0, 0.08, 4.5)
-measured = (
-    ge=quantities[1](reference),
-    ef=quantities[2](reference),
-    cavity_01=quantities[3](reference),
-    conditional_cavity_shift=quantities[4](reference),
+predict(m) = (
+    ge=real(m.spectrum[(1, 0)] - m.spectrum[(0, 0)]),
+    ef=real(m.spectrum[(2, 0)] - m.spectrum[(1, 0)]),
+    cavity_01=real(m.spectrum[(0, 1)] - m.spectrum[(0, 0)]),
+    conditional_cavity_shift=real((m.spectrum[(1, 1)] - m.spectrum[(1, 0)]) -
+                                 (m.spectrum[(0, 1)] - m.spectrum[(0, 0)])),
 )
-spectral_data = [ModelDatum(f, value; uncertainty=0.001)
-    for (f, value) in zip(quantities, values(measured))];
+
+# Replace these named values with measured frequencies, in GHz.
+reference = cavity_transmon_model(0.2, 10.0, 0.08, 4.5)
+measured = predict(reference);
 ```
 
 ```@example cavity_tomography
 initial = cavity_transmon_model(0.21, 9.7, 0.07, 4.45)
 paths = ["components/1/EC", "components/1/EJ",
          "coupling_parameters/g", "components/2/frequency"]
-spectral_problem = ModelTomographyProblem(initial, spectral_data, paths)
+spectral_problem = ModelTomographyProblem(initial, paths;
+    predict, observed=measured, uncertainty=0.001)
 spectral_solution = solve(spectral_problem, OptimizationOptimJL.NelderMead();
     maxiters=1500, g_abstol=1e-10)
 @assert SciMLBase.successful_retcode(spectral_solution.retcode)
@@ -94,7 +89,7 @@ shift_trial = make_model([transmon_with_N, baseline.components[2]],
     merge(baseline.coupling_parameters, (; chi=0.005));
     truncation_dimensions=Dict(transmon_with_N => 4))
 
-carrier = quantities[1](baseline)
+carrier = predict(baseline).ge
 pulse_time = 5.0
 idle_time = 4.0
 wait_counts = 0:6
@@ -178,8 +173,8 @@ near a positive `g`; spectroscopy may determine only its magnitude. Check basis
 convergence and dressed-state labels near avoided crossings. The added `N`
 operator is defined after the physical fit, so `EC` and `EJ` stay fixed in stage 2.
 
-`ModelTomographyProblem` accepts scalar observations or sequence records, not a
-mixture. Pass the reconstructed spectral model into the sequence stage as shown
+Use `ModelTomographyProblem(model, paths; predict, observed)` for scalar fitting,
+and `ModelTomographyProblem(model, sequence_data, paths)` for sequence fitting. Pass the reconstructed spectral model into the sequence stage as shown
 here. Every candidate is rebuilt from its original trial model; fitting does not
 overwrite that model. Gate-only updates reuse idle physics, interaction updates
 retrack dressed states, and component updates such as `EC` rebuild the affected

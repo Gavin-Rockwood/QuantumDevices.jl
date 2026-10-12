@@ -1,11 +1,18 @@
 _tomography_resolve(value, model) = applicable(value, model) ? value(model) : value
 
-function _tomography_scalar_predictions(model, data)
-    return map(data) do datum
-        prediction = datum.prediction(model)
-        prediction isa Real && !(prediction isa Bool) && isfinite(prediction) ||
-            throw(ArgumentError("Model prediction must be a finite real scalar"))
-        prediction
+_tomography_real_scalar(value) = value isa Real && !(value isa Bool) && isfinite(value)
+
+function _tomography_named_values(values, names, description)
+    values isa NamedTuple || throw(ArgumentError("$description must be a NamedTuple"))
+    missing = setdiff(names, keys(values))
+    extra = setdiff(keys(values), names)
+    isempty(missing) && isempty(extra) ||
+        throw(ArgumentError("$description names differ: missing $(Tuple(missing)), extra $(Tuple(extra))"))
+    return map(names) do name
+        value = values[name]
+        _tomography_real_scalar(value) ||
+            throw(ArgumentError("$description for $name must be a finite real scalar"))
+        value
     end
 end
 

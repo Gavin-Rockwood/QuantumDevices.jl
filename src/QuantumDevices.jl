@@ -50,7 +50,7 @@ module QuantumDevices
     include("time_evolution/time_evolution.jl")
     export get_gate_matrix
     include("tomography/tomography.jl")
-    export Measurement, SequenceData, ModelDatum, ModelTomographyProblem
+    export Measurement, SequenceData, ModelTomographyProblem
     export predict_sequence, predict_sequences, reconstructed_model, tomography_residuals
     include("io/io.jl")
     export save, load

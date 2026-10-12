@@ -188,10 +188,10 @@ end
     model = make_model([transmon, resonator], interaction, (; g=0.08);
         truncation_dimensions=Dict(transmon => 4))
     paths = ["components/1/EC", "components/1/EJ", "coupling_parameters/g", "components/2/frequency"]
-    observations = [ModelDatum(m -> real(m.spectrum[(1, 0)] - m.spectrum[(0, 0)]), 3.8),
-        ModelDatum(m -> real(m.spectrum[(0, 1)] - m.spectrum[(0, 0)]), 4.5)]
+    predict = m -> (ge=real(m.spectrum[(1, 0)] - m.spectrum[(0, 0)]),
+                    cavity_01=real(m.spectrum[(0, 1)] - m.spectrum[(0, 0)]))
     reset_reconstruction_counts!()
-    setup = ModelTomographyProblem(model, observations, paths)
+    setup = ModelTomographyProblem(model, paths; predict, observed=(ge=3.8, cavity_01=4.5))
     @test reconstruction_local_calls[] == reconstruction_tracking_calls[] == 0
     reset_reconstruction_counts!()
     tomography_residuals(setup, [0.21, 10.1, 0.09, 4.5])

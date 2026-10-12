@@ -69,32 +69,61 @@ and reload in a fresh process without user definitions. Custom `Envelope` and
 loading a bundle. Notebook closures are not portable code archives. Use bundles
 from trusted sources, especially those containing JLD2 artifacts.
 
-## A callable restored in a fresh process
+## Saving a custom pulse shape
 
-```@raw html
-<p>Download the module-owned callable definition: <a href="../PulseDefinitions.jl" download>PulseDefinitions.jl</a>.</p>
-```
+This step is only needed for custom pulse shapes. Built-in shapes such as
+`Constant()` and `SineSquared()` already have their definitions in QuantumDevices.
 
-The module defines a callable type. In an application, keep this module in your own codebase
-and include or import it before loading the bundle.
+A bundle stores a custom shape's data, but not its Julia code. Keep that code in
+a file and include it before saving or loading the model.
 
-```@example portable
-using QuantumDevices
-definitions = joinpath(pkgdir(QuantumDevices), "docs", "src", "public", "PulseDefinitions.jl")
-Base.include(Main, definitions)
-model = make_model([make_qubit("q", 0.0)], val(0), (;))
-pulse = Pulse(Envelope(Main.DocsPulseDefinitions.SineLobe()); amplitude=0.2, duration=1.0)
-model.gates[:shaped] = DeviceGate((; drive=pulse), param(:drive) * op(:q_x), 1.0)
-mktempdir() do directory
-    path = save(joinpath(directory, "device"), model)
-    environment = dirname(Base.active_project())
-    script = """
-    using QuantumDevices
-    include($(repr(definitions)))
-    m = load($(repr(path)))
-    @assert m.gates[:shaped].parameters.drive(0.5) ≈ 0.2
-    println("Fresh-process restore passed")
-    """
-    print(read(`$(Base.julia_cmd()) --startup-file=no --project=$environment -e $script`, String))
+**1. Define the shape in `PulseDefinitions.jl`.**
+
+```julia
+module PulseDefinitions
+export SineLobe
+
+struct SineLobe end
+(::SineLobe)(p, t, duration) = sinpi(t / duration)^2
 end
 ```
+
+`SineLobe()` is an object that can be called like a function. `Envelope` calls it
+with the pulse parameters `p`, time `t`, and pulse duration. This shape ignores
+`p` and peaks at 1 halfway through the pulse.
+
+```@raw html
+<p>You can also download this file: <a href="../PulseDefinitions.jl" download>PulseDefinitions.jl</a>.</p>
+```
+
+**2. Create and save a model using that shape.**
+
+Run this from the directory containing `PulseDefinitions.jl`. The destination
+`device` must not already exist.
+
+```julia
+using QuantumDevices
+include("PulseDefinitions.jl")
+using .PulseDefinitions
+
+model = make_model([make_qubit("q", 0.0)], val(0), (;))
+pulse = Pulse(Envelope(SineLobe()); amplitude=0.2, duration=1.0)
+model.gates[:shaped] = DeviceGate((; drive=pulse), param(:drive) * op(:q_x), 1.0)
+save("device", model)
+```
+
+**3. Load it in a new Julia session.**
+
+Use the same directory and load the shape definition before calling `load`.
+
+```julia
+using QuantumDevices
+include("PulseDefinitions.jl")
+
+restored = load("device")
+restored.gates[:shaped].parameters.drive(0.5)  # approximately 0.2
+```
+
+Keep `PulseDefinitions.jl` with your application and share it alongside the
+bundle. Saving a notebook closure alone does not make its code available in a
+new session.

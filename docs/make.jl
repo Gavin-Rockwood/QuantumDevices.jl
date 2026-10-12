@@ -7,6 +7,8 @@ const DOCS_ROOT = @__DIR__
 const BUILD_ROOT = joinpath(DOCS_ROOT, "build")
 const MARKDOWN_ONLY = get(ENV, "DOCS_MARKDOWN_ONLY", "false") == "true"
 const DEPLOY = get(ENV, "DOCS_DEPLOY", "false") == "true"
+const DRAFT = get(ENV, "DOCS_DRAFT", "false") == "true"
+DRAFT && DEPLOY && error("Draft documentation cannot be deployed")
 
 # The Julia walkthrough is the source for both the script and tutorial page.
 Literate.markdown(
@@ -98,8 +100,11 @@ makedocs(;
     ),
     remotes = nothing,
     pages = PAGES,
+    pagesonly = DRAFT,
+    clean = !DRAFT,
     checkdocs = :exports,
-    doctest = true,
+    draft = DRAFT,
+    doctest = !DRAFT,
     warnonly = false,
 )
 

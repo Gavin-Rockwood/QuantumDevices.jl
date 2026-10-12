@@ -1,27 +1,4 @@
 """
-    ModelDatum(prediction, value; uncertainty=1)
-
-One scalar model observation. `prediction(model)` must return a finite real
-scalar, such as a difference of dressed energies in `model.spectrum`. `value`
-must be finite and real; `uncertainty` must also be positive. Observations,
-predictions, and uncertainties use the same units. The least-squares residual
-is `(prediction(model) - value) / uncertainty`; the default is unweighted.
-Errors are treated as independent. No gate evolution is needed for scalar fits.
-"""
-struct ModelDatum{F,V,U}
-    prediction::F
-    value::V
-    uncertainty::U
-    function ModelDatum(prediction, value; uncertainty=1)
-        value isa Real && !(value isa Bool) && isfinite(value) ||
-            throw(ArgumentError("Model observation must be a finite real scalar"))
-        uncertainty isa Real && !(uncertainty isa Bool) && isfinite(uncertainty) && uncertainty > 0 ||
-            throw(ArgumentError("Model uncertainty must be a finite positive real scalar"))
-        new{typeof(prediction),typeof(value),typeof(uncertainty)}(prediction, value, uncertainty)
-    end
-end
-
-"""
     SequenceData(sequence, preparation, measurement; counts=nothing,
                  probabilities=nothing, shots=nothing)
 
