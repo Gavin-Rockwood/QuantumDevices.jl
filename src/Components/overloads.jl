@@ -12,11 +12,16 @@ numerical(component::Component, expression::Sym; scalar::Number=1, dense::Bool=f
     numerical(expression, component.operators, component.parameters; scalar, dense)
 
 function _replace_property(component::Component, key::Symbol, value)
-    key in (:name, :parameters, :dimension) ||
-        throw(ArgumentError("Component.$key is derived or unknown"))
-    name = key === :name ? value : component.name
-    p = key === :parameters ? value : component.parameters
-    dimension = key === :dimension ? value : component.dimension
+    return _rebuild_component(component, Dict(key => value))
+end
+
+function _rebuild_component(component::Component, changes)
+    all(key -> key in (:name, :parameters, :dimension), keys(changes)) ||
+        throw(ArgumentError("Component inputs are derived or unknown"))
+    name = get(changes, :name, component.name)
+    p = get(changes, :parameters, component.parameters)
+    dimension = get(changes, :dimension, component.dimension)
+    name === component.name && p === component.parameters && dimension === component.dimension && return component
     constructor = get(COMPONENT_CONSTRUCTORS, component.type, nothing)
     constructor === nothing &&
         return Component(name, p, component.operators, component.hamiltonian, component.type, dimension)

@@ -48,8 +48,12 @@ end
 
 Return an updated object by copying containers along the path and reconstructing
 structs. Unchanged branches may be shared; the original is not modified.
-Built-in components rebuild their basis, and model physical-input updates rebuild
-operators, the Hamiltonian, and dressed states while retaining named gates.
+Gate updates reuse the idle Hamiltonian and dressed states. Interaction updates
+reuse component bases and projections, rebuilding the Hamiltonian and retracking
+dressed states. Component physics updates reconstruct affected components and
+dependent projections before retracking; unchanged components are reused.
+Structural dimension/truncation updates perform a complete model reconstruction.
+Named gates are retained across physical updates.
 Derived model/component fields cannot be directly replaced.
 
 ```jldoctest

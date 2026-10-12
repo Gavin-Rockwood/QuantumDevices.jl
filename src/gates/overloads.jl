@@ -146,3 +146,25 @@ function Base.show(io::IO, ::MIME"text/plain", gate::DeviceGate)
         end
     end
 end
+
+function _check_update_key(::DeviceGate, key)
+    key in (:parameters, :hamiltonian, :duration) ||
+        throw(ArgumentError("DeviceGate.$key is derived or unknown"))
+end
+
+function _replace_properties(gate::DeviceGate, changes)
+    return DeviceGate(get(changes, :parameters, gate.parameters),
+        get(changes, :hamiltonian, gate.hamiltonian),
+        get(changes, :duration, gate.duration_override))
+end
+
+function _replace_properties(pulse::Pulse, changes)
+    fields = map(fieldnames(typeof(pulse))) do key
+        get(changes, key, getfield(pulse, key))
+    end
+    return Pulse(fields...)
+end
+
+function _check_update_key(::Slepian, key)
+    key in (:time_bandwidth, :samples) || throw(ArgumentError("Slepian.$key is derived or unknown"))
+end

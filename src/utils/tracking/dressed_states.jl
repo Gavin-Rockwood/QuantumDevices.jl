@@ -20,17 +20,25 @@ function get_dressed_states(
 )
     isempty(H0s) && throw(ArgumentError("At least one local Hamiltonian is required"))
     nsteps isa Integer && nsteps >= 2 || throw(ArgumentError("nsteps must be at least two"))
-    gs = trajectory.(LinRange(0, 1, nsteps))
-    first(gs) == 0 && last(gs) == 1 || throw(ArgumentError("Trajectory must start at zero and end at one"))
+    preparation = _prepare_dressing(H0s)
+    return _track_dressing(preparation, Hint; trajectory, nsteps, method)
+end
 
-    λ0s = []
-    ψ0s = []
+# Read-only preparation shared by models with unchanged component Hamiltonians.
+struct _DressingPreparation
+    H0
+    states
+    energies
+end
 
-    for H in H0s
-        λ, ψ = eigenstates(H)
-        push!(λ0s, λ)
-        push!(ψ0s, ψ)
-    end
+function _local_eigensystem(H)
+    values, states = eigenstates(H)
+    return (values, states)
+end
+
+function _prepare_dressing(H0s, eigensystems=[_local_eigensystem(H) for H in H0s])
+    λ0s = [system[1] for system in eigensystems]
+    ψ0s = [system[2] for system in eigensystems]
 
     # Labeled bare product states
     bare_states = Dict()
@@ -54,6 +62,16 @@ function get_dressed_states(
     dims = [size(H)[1] for H in H0s]
     H0 = sum([wrap(H0s[i], i, dims) for i in 1:length(dims)])
 
+    return _DressingPreparation(H0, bare_states, bare_energies)
+end
+
+function _track_dressing(preparation::_DressingPreparation, Hint;
+    trajectory=x -> x^3, nsteps=20, method=expansive_tracking)
+    nsteps isa Integer && nsteps >= 2 || throw(ArgumentError("nsteps must be at least two"))
+    gs = trajectory.(LinRange(0, 1, nsteps))
+    first(gs) == 0 && last(gs) == 1 || throw(ArgumentError("Trajectory must start at zero and end at one"))
+
+    H0, bare_states, bare_energies = preparation.H0, preparation.states, preparation.energies
     keys_ = collect(keys(bare_states))
 
     previous_states = [bare_states[key] for key in keys_]

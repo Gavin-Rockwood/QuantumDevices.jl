@@ -12,6 +12,9 @@ energies are in frequency units, `E/h` (cycles per unit time).
 
 Use [`make_model`](@ref) rather than the positional field constructor. Derived
 matrices and eigensystems are reconstructed by supported [`setpath`](@ref) updates.
+Gate updates preserve idle physics; interaction changes reuse component preparation;
+component changes rebuild only affected local bases and dependent projections.
+The internal read-only reconstruction cache is derived and is not saved in bundles.
 `model.gates` is a mutable dictionary accepting named [`DeviceGate`](@ref) objects.
 """
 struct DeviceModel
@@ -27,6 +30,7 @@ struct DeviceModel
     gates
     truncation_dimensions
     compiled_terms
+    reconstruction
 end
 
 function _promote_name_for_model(x, name::Symbol)
@@ -122,17 +126,7 @@ function make_model(components, interaction::Sym, coupling_parameters::NamedTupl
     components = collect(components)
     dims = _model_dimensions(components, truncation_dimensions, max_dimension)
     sources = _operator_sources(components)
-    parameters = Dict{Symbol,Any}()
-    for component in components, key in keys(component.parameters)
-        name = Symbol(component.name, "_", key)
-        haskey(parameters, name) && throw(ArgumentError("Duplicate parameter name: $name"))
-        parameters[name] = component.parameters[key]
-    end
-    for (key, value) in pairs(coupling_parameters)
-        haskey(parameters, key) && throw(ArgumentError("Coupling parameter collides with component parameter: $key"))
-        parameters[key] = value
-    end
-    parameters = (; parameters...)
+    parameters = _model_parameters(components, coupling_parameters)
     operators = Dict{Symbol,Any}()
     for (name, (i, key)) in sources
         c = components[i]
@@ -148,14 +142,35 @@ function make_model(components, interaction::Sym, coupling_parameters::NamedTupl
     isempty(missing_parameters) || throw(ArgumentError("Missing idle parameters: $missing_parameters"))
     any(v -> v isa Function, values(parameters)) && throw(ArgumentError("Idle model parameters must be static"))
 
-    terms = _projected_terms(hamiltonian, components, dims)
+    idle_terms = _prepare_model_terms(sum(local_hamiltonians), components, dims)
+    interaction_terms = _prepare_model_terms(interaction, components, dims)
+    terms = _compiled_model_terms(idle_terms, interaction_terms)
 
     H0s = [truncate(numerical(c.hamiltonian, c.operators, c.parameters), projection(c.dimension, 1:d)) for (c, d) in zip(components, dims)]
-    Hi = _evaluate_terms(_projected_terms(interaction, components, dims), parameters)
-    dressed = get_dressed_states(H0s, Hi)
+    eigensystems = [_local_eigensystem(H) for H in H0s]
+    preparation = _prepare_dressing(H0s, eigensystems)
+    Hi = _evaluate_terms(_compiled_model_terms(interaction_terms), parameters)
+    dressed = _track_dressing(preparation, Hi)
+    reconstruction = _ModelReconstruction(dims, H0s, eigensystems, preparation,
+        local_hamiltonians, idle_terms, interaction_terms)
 
     return DeviceModel(components, interaction, coupling_parameters, max_dimension,
         operators, parameters, hamiltonian,
         to_sparse(_evaluate_terms(terms, parameters)), dressed, Dict{Any,Any}(),
-        Dict(truncation_dimensions), terms)
+        Dict(truncation_dimensions), terms, reconstruction)
+end
+
+function _model_parameters(components, coupling_parameters)
+    parameters = Dict{Symbol,Any}()
+    for component in components, key in keys(component.parameters)
+        name = Symbol(component.name, "_", key)
+        haskey(parameters, name) && throw(ArgumentError("Duplicate parameter name: $name"))
+        parameters[name] = component.parameters[key]
+    end
+    for (key, value) in pairs(coupling_parameters)
+        haskey(parameters, key) && throw(ArgumentError("Coupling parameter collides with component parameter: $key"))
+        parameters[key] = value
+    end
+    parameters = (; parameters...)
+    return parameters
 end

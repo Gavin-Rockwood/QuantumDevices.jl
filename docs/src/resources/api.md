@@ -10,6 +10,7 @@ QuantumDevices
 - [Symbolic expressions and evaluation](../reference/symbolics.md)
 - [Components and models](../reference/models.md)
 - [Pulses, gates, and calibration](../reference/gates.md)
+- [Model tomography](../reference/tomography.md)
 - [Tracking and parameter paths](../reference/tracking.md)
 - [Floquet and spectral tools](../reference/spectral_tools.md)
 - [Persistence](../reference/persistence.md)
