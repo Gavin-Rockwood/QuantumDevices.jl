@@ -12,7 +12,7 @@ function make_qubit(name, ν)
     parameters = (ν=ν,)
     operators = (x=sigmax(), y=sigmay(), z=sigmaz(), p=sigmap(), m=sigmam())
     hamiltonian = 0.5*param(:ν)*op(:z)
-    return Component(name, parameters, operators, hamiltonian, "qubit", 2)
+    return Component(name, parameters, operators, hamiltonian, "qubit", 2;basis=_ComponentBasis((:qubit,2),nothing))
 end
 
 function make_qubit(; name, ν, dimension=2)

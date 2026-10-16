@@ -109,3 +109,109 @@ function _track_dressing(preparation::_DressingPreparation, Hint;
 
     return TrackingResult(dressed_states, dressed_energies, confidence)
 end
+
+function _tracking_step_count(steps, reference)
+    reference === nothing || reference isa DeviceModel || throw(ArgumentError("Reference must be a DeviceModel or nothing"))
+    steps === nothing && return reference === nothing ? 18 : 0
+    steps isa Integer && !(steps isa Bool) && 0 <= steps < typemax(Int)-1 ||
+        throw(ArgumentError("tracking_steps must be a nonnegative integer"))
+    return Int(steps)
+end
+
+function _component_basis_overlap(old,new,d)
+    old.dimension == new.dimension || throw(DimensionMismatch("Reference parent dimensions differ"))
+    if old === new || old.operators === new.operators
+        return qeye(d)
+    end
+    a,b = old.basis,new.basis
+    a !== nothing && b !== nothing && a.id == b.id ||
+        throw(ArgumentError("No common physical basis for component $(new.name)"))
+    a.vectors === nothing && b.vectors === nothing && return qeye(d)
+    A = a.vectors === nothing ? Matrix{ComplexF64}(I,old.dimension,d) : a.vectors[:,1:d]
+    B = b.vectors === nothing ? Matrix{ComplexF64}(I,new.dimension,d) : b.vectors[:,1:d]
+    return QuantumObject(B'*A)
+end
+
+function _reference_transport(reference,components,dims)
+    length(reference.components)==length(components) &&
+        all(a.name==b.name for (a,b) in zip(reference.components,components)) ||
+        throw(ArgumentError("Reference component names and order differ"))
+    old_dims = _model_dimensions(reference.components,reference.truncation_dimensions,reference.max_dimension)
+    old_dims == dims || throw(DimensionMismatch("Reference retained dimensions differ"))
+    return tensor((_component_basis_overlap(a,b,d) for (a,b,d) in zip(reference.components,components,dims))...)
+end
+
+# No transported reference normalization: projection loss belongs in overlap confidence.
+function _match_model_reference(H,transport,reference)
+    energies,states = eigenstates(H)
+    labels = collect(keys(reference.states))
+    length(labels)==length(states) || throw(DimensionMismatch("Reference state count differs"))
+    old = [transport*reference.states[key] for key in labels]
+    indices,overlaps = expansive_tracking(old,states)
+    matched = Dict()
+    spectrum = Dict()
+    confidence = Dict()
+    for (i,key) in enumerate(labels)
+        state = states[indices[i]]
+        phase = dot(old[i],state)
+        matched[key] = iszero(abs(phase)) ? state : state*(conj(phase)/abs(phase))
+        spectrum[key] = energies[indices[i]]
+        confidence[key] = overlaps[i]
+    end
+    return TrackingResult(matched,spectrum,confidence)
+end
+
+function _interpolate_parameters(a,b,t)
+    Set(keys(a))==Set(keys(b)) || throw(ArgumentError("Intermediate tracking requires identical parameter names"))
+    return NamedTuple{keys(b)}(Tuple(map(keys(b)) do key
+        x,y = a[key],b[key]
+        x == y && return y
+        x isa Number && y isa Number || throw(ArgumentError("Cannot interpolate parameter $key"))
+        (1-t)*x+t*y
+    end))
+end
+
+function _interpolate_component(a,b,t)
+    a.type==b.type && a.hamiltonian==b.hamiltonian ||
+        throw(ArgumentError("Intermediate tracking requires unchanged component structure"))
+    a.parameters==b.parameters && return b
+    parameters = _interpolate_parameters(a.parameters,b.parameters,t)
+    if a.type == "TunableTransmon"
+        parameters = NamedTuple{Tuple(k for k in keys(parameters) if k ∉ (:EJmax,:d))}(
+            Tuple(parameters[k] for k in keys(parameters) if k ∉ (:EJmax,:d)))
+    end
+    return _rebuild_component(a,Dict(:parameters=>parameters))
+end
+
+function _track_model_reference(components,interaction,coupling,H,dims,reference,steps;
+    max_dimension,threaded_components)
+    transport = _reference_transport(reference,components,dims)
+    previous = reference
+    confidence = Dict(key=>1.0 for key in keys(reference.states))
+    if steps>0
+        interaction==reference.interactions || throw(ArgumentError("Intermediate tracking requires unchanged interactions"))
+        for k in 1:steps
+            t = k/(steps+1)
+            mid_components = Vector{Component}(undef,length(components))
+            make_component(i) = (mid_components[i]=_interpolate_component(reference.components[i],components[i],t))
+            if threaded_components && length(components)>1 && Threads.nthreads()>1
+                Threads.@threads for i in eachindex(components)
+                    make_component(i)
+                end
+            else
+                foreach(make_component,eachindex(components))
+            end
+            previous = make_model(mid_components,interaction,
+                _interpolate_parameters(reference.coupling_parameters,coupling,t);
+                max_dimension,truncation_dimensions=Dict(c=>d for (c,d) in zip(mid_components,dims)),
+                reference_model=previous,tracking_steps=0,threaded_components)
+            for key in keys(confidence)
+                confidence[key] *= previous.confidence[key]
+            end
+        end
+        transport = _reference_transport(previous,components,dims)
+    end
+    result = _match_model_reference(H,transport,previous)
+    return TrackingResult(result.states,result.others,
+        Dict(key=>confidence[key]*result.confidence[key] for key in keys(confidence)))
+end

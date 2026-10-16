@@ -1,5 +1,5 @@
 """
-    numerical(model::DeviceModel, expression::Sym; scalar=1, dense=false)
+    numerical(model::DeviceModel, expression::Sym; scalar=1, dense=true)
 
 Evaluate a symbolic expression using the model's component operators, retained
 dimensions, and merged parameters. Operator names use the model's promoted names
@@ -8,10 +8,11 @@ projection, following the same rules as [`make_model`](@ref).
 
 For example, `numerical(model, model.hamiltonian)` reproduces `model.H`.
 Unresolved parameters produce a `QobjEvo`, as with the other symbolic overloads.
-`dense=true` materializes all operator matrices as dense matrices at construction.
+`dense=true` (default) materializes operator matrices at construction.
+Use `dense=false` to preserve the original storage.
 `scalar` is folded into operator matrices and constant coefficients at construction.
 """
-function numerical(model::DeviceModel, expression::Sym; scalar::Number=1, dense::Bool=false)
+function numerical(model::DeviceModel, expression::Sym; scalar::Number=1, dense::Bool=true)
     dims = [get(model.truncation_dimensions, c, c.dimension) for c in model.components]
     return _evaluate_terms(_projected_terms(expression, model.components, dims), model.parameters; scalar, dense)
 end

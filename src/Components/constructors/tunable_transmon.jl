@@ -49,7 +49,7 @@ function make_tunable_transmon(name, EC, EJ1, EJ2, dimension; ng = 0, phi = 0, h
     operators = (jump = jump, charge = charge)
     hamiltonian = 4*param(:EC)*(param(:ng) - op(:charge))^2 - 0.5 * param(:EJmax)*op(:jump)*sqrt(cos(π*param(:phi))^2+param(:d)^2*sin(π*param(:phi))^2)
 
-    return Component(name, parameters, operators, hamiltonian, "TunableTransmon", dimension)
+    return Component(name, parameters, operators, hamiltonian, "TunableTransmon", dimension;basis=_ComponentBasis((:charge,dimension),Matrix(U.data)))
 end
 
 make_tunable_transmon(; name, EC, EJ1, EJ2, dimension, ng=0, phi=0,

@@ -24,6 +24,10 @@ import QuantumDevices as QD
     include("io_bundle.jl")
     include("calibration.jl")
     include("tomography.jl")
+    include("tomography_interface.jl")
+    include("evolution_storage.jl")
+    include("tomography_subspace.jl")
     include("scalar_tomography.jl")
+    include("tomography_normalization.jl")
     include("reconstruction.jl")
 end

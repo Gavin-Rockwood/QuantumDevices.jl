@@ -10,6 +10,7 @@ parameters (for example flux and offset charge) and phases in radians retain
 their own conventions.
 """
 module QuantumDevices
+    import Adapt
     using LinearAlgebra
     using SparseArrays
     import JSON3
@@ -51,7 +52,7 @@ module QuantumDevices
     export get_gate_matrix
     include("tomography/tomography.jl")
     export Measurement, SequenceData, ModelTomographyProblem
-    export predict_sequence, predict_sequences, reconstructed_model, tomography_residuals
+    export predict_sequence, predict_sequences, reconstructed_model, tomography_residuals, physical_parameters
     include("io/io.jl")
     export save, load
 

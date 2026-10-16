@@ -54,23 +54,37 @@ function _prepare_model_updates(model::DeviceModel, paths)
     return root
 end
 
-function _apply_model_updates(object, node::_ModelUpdateNode, values)
+function _apply_model_updates(object, node::_ModelUpdateNode, values; threaded_components::Bool=true, reference_model=nothing, tracking_steps=nothing)
     node.index != 0 && return values[node.index]
     changes = Dict{Symbol,Any}()
     changed = false
-    for (key, child) in node.children
+    entries = collect(node.children)
+    replacements = Vector{Any}(undef, length(entries))
+    function update_child(i)
+        key, child = entries[i]
+        replacements[i] = _apply_model_updates(_get(object, key), child, values; threaded_components, reference_model, tracking_steps)
+    end
+    if threaded_components && object isa AbstractVector{<:Component} && length(entries) > 1 && Threads.nthreads() > 1
+        Threads.@threads for i in eachindex(entries)
+            update_child(i)
+        end
+    else
+        foreach(update_child, eachindex(entries))
+    end
+    for (i, (key, child)) in enumerate(entries)
         original = _get(object, key)
-        replacement = _apply_model_updates(original, child, values)
+        replacement = replacements[i]
         changed |= replacement !== original
         # A selected computed property (gate duration) must retain its explicit
         # requested value when another input changes its inferred value.
         computed = !(object isa Union{NamedTuple,AbstractDict,AbstractArray,Tuple}) &&
             !hasfield(typeof(object), key)
-        replacement !== original || computed || continue
+        replacement !== original || computed || (object isa DeviceModel && key === :gates) || continue
         changes[key] = replacement
     end
     changed || return object
-    return _replace_properties(object, changes)
+    return object isa DeviceModel ? _rebuild_model(object, changes; threaded_components, reference_model, tracking_steps) :
+        _replace_properties(object, changes)
 end
 
 # Conservative fallback preserves specialized reconstruction hooks on custom

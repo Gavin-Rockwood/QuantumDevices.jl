@@ -43,3 +43,32 @@ struct SequenceData{S,P,M,F,C,N}
             sequence, preparation, measurement, probabilities, counts, shots)
     end
 end
+
+# Prediction specifications contain no observations.
+function _tomography_sequences(sequences)
+    sequences isa AbstractString && throw(ArgumentError("Pass a collection of gate sequences"))
+    return map(collect(sequences)) do sequence
+        sequence isa Union{AbstractVector,Tuple} || throw(ArgumentError("Each gate sequence must be a vector or tuple"))
+        collect(sequence)
+    end
+end
+
+function _tomography_sequence_data(sequences, preparation, measurement; observed=nothing, counts=nothing, shots=nothing)
+    (observed === nothing) != (counts === nothing) ||
+        throw(ArgumentError("Supply exactly one of observed probabilities or counts"))
+    sequences = _tomography_sequences(sequences)
+    distributions = collect(observed === nothing ? counts : observed)
+    length(distributions) == length(sequences) || throw(DimensionMismatch("One distribution is needed per sequence"))
+    totals = if shots === nothing || shots isa Integer
+        fill(shots,length(sequences))
+    else
+        shots isa Union{AbstractVector,Tuple} || throw(ArgumentError("Shots must be an integer or a vector in sequence order"))
+        values = collect(shots)
+        length(values) == length(sequences) || throw(DimensionMismatch("Shots must match sequences"))
+        values
+    end
+    return [SequenceData(s,preparation,measurement;
+        probabilities=observed === nothing ? nothing : distribution,
+        counts=counts === nothing ? nothing : distribution,shots=total)
+        for (s,distribution,total) in zip(sequences,distributions,totals)]
+end

@@ -1,6 +1,6 @@
 """
     gate_infidelity(model, gate, target; states=nothing, output_states=states,
-                    frame=:lab, include_phases=true, energy_shift=:auto, dense=false, evolution_kwargs=(;))
+                    frame=:lab, include_phases=true, energy_shift=:auto, dense=true, evolution_kwargs=(;))
 
 Compare a target unitary with the evolved gate matrix. With `states=nothing`,
 evolve the full retained-space identity; otherwise evolve only the supplied
@@ -16,14 +16,14 @@ This is the default calibration objective; it does not model dissipation.
 """
 function gate_infidelity(model::DeviceModel, gate::DeviceGate, target;
     states=nothing, output_states=states, frame=:lab, include_phases::Bool=true,
-    energy_shift=:auto, dense::Bool=false, evolution_kwargs=(;))
+    energy_shift=:auto, dense::Bool=true, evolution_kwargs=(;))
     objective = _prepared_gate_objective(model, gate, target;
         states, output_states, frame, include_phases, energy_shift, dense, evolution_kwargs)
     return objective(gate)
 end
 
 # This cache belongs to one optimization problem; there is no global model cache.
-function _prepared_gate_numerical(model, gate; scalar::Number=1, energy_shift=0, dense::Bool=false)
+function _prepared_gate_numerical(model, gate; scalar::Number=1, energy_shift=0, dense::Bool=true)
     _gate_parameters(model, gate) # Validate endpoints and required parameters now.
     dims = [get(model.truncation_dimensions, c, c.dimension) for c in model.components]
     terms = vcat(model.compiled_terms, _projected_terms(gate.hamiltonian, model.components, dims))
@@ -36,14 +36,14 @@ function _prepared_gate_numerical(model, gate; scalar::Number=1, energy_shift=0,
     end
     fixed = _evaluate_terms(fixed_terms, model.parameters; scalar, dense)
     if !iszero(energy_shift)
-        offset = (scalar * energy_shift) * qeye_like(model.H)
+        offset = _numerical_storage((scalar * energy_shift) * qeye_like(model.H), dense)
         fixed = fixed === nothing ? -offset : fixed - offset
     end
     return candidate -> _evaluate_terms(variable, _gate_parameters(model, candidate); fixed, scalar, dense)
 end
 
 function _prepared_gate_objective(model, gate, target;
-    states, output_states, frame, include_phases, energy_shift=:auto, dense::Bool=false, evolution_kwargs)
+    states, output_states, frame, include_phases, energy_shift=:auto, dense::Bool=true, evolution_kwargs)
     if states === nothing
         output_states === nothing || throw(ArgumentError("output_states requires input states"))
         initial = qeye_like(model.H)
@@ -58,6 +58,7 @@ function _prepared_gate_objective(model, gate, target;
         throw(DimensionMismatch("Target must act on the selected gate basis"))
     projection = _prepare_gate_projection(output, frame, model.H)
     shift = _energy_shift(model.H, initial, energy_shift)
+    initial = _numerical_storage(initial, dense)
     evaluate = _prepared_gate_numerical(model, gate; scalar=2pi, energy_shift=shift, dense)
     return function (candidate)
         options = merge((; tstops=pulse_tstops(candidate)), (; evolution_kwargs...))

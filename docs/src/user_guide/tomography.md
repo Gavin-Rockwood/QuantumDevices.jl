@@ -26,7 +26,8 @@ transmon level `j` and cavity occupation `n`. Transmon anharmonicity
 
 `predict(model)` returns named quantities. The problem matches them with the
 names in `observed`. Each residual is `(prediction - observation) / uncertainty`;
-`uncertainty=0.001` below means 1 MHz.
+`uncertainty=0.001` below means 1 MHz. Use `uncertainty=0.0` for
+unweighted fitting of synthetic values; zero does not impose an exact constraint.
 The scalar fit uses the sum of squared residuals and does not evolve any gates.
 `real(...)` removes imaginary numerical roundoff from the Hermitian spectrum.
 
@@ -62,11 +63,12 @@ spectral_solution = solve(spectral_problem, OptimizationOptimJL.NelderMead();
     maxiters=1500, g_abstol=1e-10)
 @assert SciMLBase.successful_retcode(spectral_solution.retcode)
 baseline = reconstructed_model(spectral_problem, spectral_solution.u)
-for (name, value) in zip(("EC", "EJ", "g", "Cavity frequency"), spectral_solution.u)
+# solution.u is normalized; use physical_parameters to report GHz values.
+for (name, value) in zip(("EC", "EJ", "g", "Cavity frequency"), physical_parameters(spectral_problem, spectral_solution.u))
     println(name, " = ", round(value; digits=6), " GHz")
 end
 println("Transmon anharmonicity = ", round(1000*(measured.ef - measured.ge); digits=3), " MHz")
-@assert isapprox(spectral_solution.u, [0.2, 10.0, 0.08, 4.5]; rtol=1e-3) # hide
+@assert isapprox(physical_parameters(spectral_problem, spectral_solution.u), [0.2, 10.0, 0.08, 4.5]; rtol=1e-3) # hide
 ```
 
 ## 2. Add the TLS-induced shift
@@ -81,9 +83,7 @@ through the wait and includes a quadrature offset to distinguish the shift sign.
 
 ```@example cavity_tomography
 transmon = baseline.components[1]
-transmon_with_N = Component(transmon.name, transmon.parameters,
-    merge(transmon.operators, (; N=num(transmon.dimension))),
-    transmon.hamiltonian, transmon.type, transmon.dimension)
+transmon_with_N = Component(transmon;operators=merge(transmon.operators,(;N=num(transmon.dimension))))
 shift_trial = make_model([transmon_with_N, baseline.components[2]],
     baseline.interactions + param(:chi)*op(:t_N),
     merge(baseline.coupling_parameters, (; chi=0.005));
@@ -111,8 +111,8 @@ Prepare the dressed ground state, apply a pulse, wait, and apply the readout
 pulse. Measure all four retained transmon levels, tracing out the cavity.
 All outcomes enter the fit, including leakage above the g-e subspace.
 
-Each `SequenceData` record contains its gate sequence, preparation, measurement,
-and observed distribution. The preparation function is evaluated against each
+Pass gate sequences, a shared preparation and measurement, and the observed
+distributions directly. The preparation function is evaluated against each
 candidate model. `Measurement(num(4); acts_on=[1])` orders outcomes as
 transmon levels 0, 1, 2, 3, so index 2 below is the level-1 probability.
 
@@ -122,23 +122,21 @@ shift_target = setpath(shift_trial, "coupling_parameters/chi", true_chi)
 preparation = m -> m.states[(0, 0)]
 measurement = Measurement(num(4); acts_on=[1])
 sequences = [vcat(["prepare"], fill("idle", k), ["readout_$k"]) for k in wait_counts]
-# Templates allow all synthetic predictions to share each gate propagator.
-records = [SequenceData(s, preparation, measurement; probabilities=[1.0, 0, 0, 0])
-    for s in sequences]
-observed = predict_sequences(shift_target, records; threaded)
+observed = predict_sequences(shift_target, sequences; preparation, measurement, threaded,gates=shift_trial.gates)
 # Replace observed with your post-flip measurement distributions.
-sequence_data = [SequenceData(s, preparation, measurement; probabilities=p)
-    for (s, p) in zip(sequences, observed)]
-
-shift_problem = ModelTomographyProblem(shift_trial, sequence_data,
-    ["coupling_parameters/chi"]; threaded)
-shift_solution = solve(shift_problem, OptimizationOptimJL.NelderMead();
+shift_problem = ModelTomographyProblem(shift_trial, ["coupling_parameters/chi"];
+    gates=shift_trial.gates,reference_model=:initial,tracking_steps=0,
+    sequences, preparation, measurement, observed, threaded, parameter_scales=[0.025])
+# A unit normalized simplex step explores a 25 MHz physical change.
+shift_algorithm = OptimizationOptimJL.NelderMead(initial_simplex=
+    OptimizationOptimJL.Optim.AffineSimplexer(a=1.0, b=0.0))
+shift_solution = solve(shift_problem, shift_algorithm;
     maxiters=200, g_abstol=1e-12)
 @assert SciMLBase.successful_retcode(shift_solution.retcode)
 fitted = reconstructed_model(shift_problem, shift_solution.u)
 println("True shift:   ", 1000*true_chi, " MHz")
-println("Fitted shift: ", round(1000*shift_solution.u[1]; digits=4), " MHz")
-@assert isapprox(shift_solution.u[1], true_chi; atol=1e-5) # hide
+println("Fitted shift: ", round(1000*physical_parameters(shift_problem, shift_solution.u)[1]; digits=4), " MHz")
+@assert isapprox(physical_parameters(shift_problem, shift_solution.u)[1], true_chi; atol=1e-5) # hide
 ```
 
 ## Compare the predictions
@@ -147,8 +145,8 @@ The plot shows level-1 population. The fit uses the complete distributions;
 it does not condition on remaining within the first two transmon levels.
 
 ```@example cavity_tomography
-before_fit = predict_sequences(shift_trial, sequence_data; threaded)
-after_fit = predict_sequences(fitted, sequence_data; threaded)
+before_fit = predict_sequences(shift_trial, sequences; preparation, measurement, threaded)
+after_fit = predict_sequences(fitted, sequences; preparation, measurement, threaded,gates=shift_trial.gates)
 wait_times = idle_time .* collect(wait_counts)
 figure = Figure(size=(700, 400))
 axis = Axis(figure[1, 1]; xlabel="Waiting time (ns)",
@@ -174,7 +172,8 @@ convergence and dressed-state labels near avoided crossings. The added `N`
 operator is defined after the physical fit, so `EC` and `EJ` stay fixed in stage 2.
 
 Use `ModelTomographyProblem(model, paths; predict, observed)` for scalar fitting,
-and `ModelTomographyProblem(model, sequence_data, paths)` for sequence fitting. Pass the reconstructed spectral model into the sequence stage as shown
+and `ModelTomographyProblem(model, paths; sequences, preparation, measurement, observed)`
+for sequence fitting. Pass the reconstructed spectral model into the sequence stage as shown
 here. Every candidate is rebuilt from its original trial model; fitting does not
 overwrite that model. Gate-only updates reuse idle physics, interaction updates
 retrack dressed states, and component updates such as `EC` rebuild the affected
@@ -183,3 +182,20 @@ component and dependent projections.
 The evolution here is unitary: decoherence and switching during acquisition are
 not included. See the [API reference](../reference/tomography.md) for measurement
 options, loss functions, and solver configuration.
+
+For measured counts, pass `counts` instead of `observed`; totals are inferred:
+
+```julia
+problem = ModelTomographyProblem(model, paths;
+    sequences, preparation, measurement, counts=measured_counts,gates=gate_set)
+```
+
+`SequenceData` remains available for experiments with different preparations or
+measurements. Prediction itself requires no measured distributions.
+
+Tomography matches each physical candidate to the initial dressed eigenbasis by
+default. `tracking_steps=0` still diagonalizes the new Hamiltonian once; add steps
+for larger changes or ambiguous overlaps. Rebuilt transmons are compared through
+their physical charge-basis maps. Set `reference_model=nothing, tracking_steps=18`
+to compare against bare-state tracking. Physical candidates do not inherit gates;
+the explicit `gates` input controls the fixed pulse definitions used in the fit.

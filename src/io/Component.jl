@@ -16,7 +16,7 @@ function _restore_component(data, parameters, artifact_dir)
     if haskey(data, "artifact")
         component = JLD2.load_object(_bundle_child(artifact_dir, data["artifact"]))
         component isa Component || throw(ArgumentError("Invalid component artifact"))
-        return Component(name, p, component.operators, component.hamiltonian, String(kind), dimension)
+        return Component(name, p, component.operators, component.hamiltonian, String(kind), dimension;basis=component.basis)
     end
     constructor = get(COMPONENT_CONSTRUCTORS, String(kind), nothing)
     constructor === nothing && throw(ArgumentError("Unknown component type: $kind"))

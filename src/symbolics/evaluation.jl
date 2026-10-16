@@ -121,7 +121,7 @@ end
 # Storage conversion happens at construction, never inside coefficient callbacks.
 _numerical_storage(x, ::Bool) = x
 _numerical_storage(x::QuantumObject, dense::Bool) =
-    dense && !(x.data isa Matrix) ? QuantumObject(Matrix(x.data), x.type, x.dimensions) : x
+    dense && !(x.data isa Array) ? QuantumObject(Array(x.data), x.type, x.dimensions) : x
 
 function build_qobjevo(H, fixed_params::Container, operators::Container; scalar::Number=1, dense::Bool=false)
     result = _evaluate_terms(qobjevo_terms(H, operators), fixed_params; scalar, dense)

@@ -12,9 +12,8 @@ energies are in frequency units, `E/h` (cycles per unit time).
 
 Use [`make_model`](@ref) rather than the positional field constructor. Derived
 matrices and eigensystems are reconstructed by supported [`setpath`](@ref) updates.
-Gate updates preserve idle physics; interaction changes reuse component preparation;
-component changes rebuild only affected local bases and dependent projections.
-The internal read-only reconstruction cache is derived and is not saved in bundles.
+Gate updates preserve idle physics. Physical updates use the normal builder and
+do not inherit gates. Reference tracking can reuse dressed-state labels.
 `model.gates` is a mutable dictionary accepting named [`DeviceGate`](@ref) objects.
 """
 struct DeviceModel
@@ -30,7 +29,6 @@ struct DeviceModel
     gates
     truncation_dimensions
     compiled_terms
-    reconstruction
 end
 
 function _promote_name_for_model(x, name::Symbol)
@@ -106,7 +104,8 @@ end
 
 """
     make_model(components, interaction::Sym, coupling_parameters::NamedTuple;
-               max_dimension=10^4, truncation_dimensions=Dict())
+               max_dimension=10^4, truncation_dimensions=Dict(),
+               reference_model=nothing, tracking_steps=nothing, threaded_components=true)
 
 Build a coupled model in the supplied tensor-product component order. Names must
 be unique. Component parameters/operators become `componentname_localname`.
@@ -118,11 +117,19 @@ Complete ordered operator products are multiplied in the parent basis before
 projection, preserving virtual excursions omitted by multiplying truncated factors.
 
 Returns a [`DeviceModel`](@ref) with a sparse idle Hamiltonian and dressed states
-tracked from the uncoupled system. Construction rejects unknown operators,
+tracked from the uncoupled system, or from `reference_model`. `tracking_steps`
+counts intermediate models: zero diagonalizes the final Hamiltonian once and
+matches its eigenbasis directly. Defaults are zero with a reference and 18
+without one (preserving the original 20-point bare-state trajectory).
+Reference tracking transports component bases to compare physical overlaps.
+Positive steps interpolate numeric inputs and require unchanged model structure.
+Models start with an empty gate dictionary. `threaded_components=true` prepares
+local Hamiltonians concurrently on Julia threads. Construction rejects unknown operators,
 unresolved parameters, invalid truncations, and naming collisions.
 """
 function make_model(components, interaction::Sym, coupling_parameters::NamedTuple;
-                    max_dimension = 10^4, truncation_dimensions = Dict())
+                    max_dimension = 10^4, truncation_dimensions = Dict(),
+                    reference_model=nothing,tracking_steps=nothing,threaded_components::Bool=true)
     components = collect(components)
     dims = _model_dimensions(components, truncation_dimensions, max_dimension)
     sources = _operator_sources(components)
@@ -142,22 +149,30 @@ function make_model(components, interaction::Sym, coupling_parameters::NamedTupl
     isempty(missing_parameters) || throw(ArgumentError("Missing idle parameters: $missing_parameters"))
     any(v -> v isa Function, values(parameters)) && throw(ArgumentError("Idle model parameters must be static"))
 
-    idle_terms = _prepare_model_terms(sum(local_hamiltonians), components, dims)
-    interaction_terms = _prepare_model_terms(interaction, components, dims)
-    terms = _compiled_model_terms(idle_terms, interaction_terms)
-
-    H0s = [truncate(numerical(c.hamiltonian, c.operators, c.parameters), projection(c.dimension, 1:d)) for (c, d) in zip(components, dims)]
-    eigensystems = [_local_eigensystem(H) for H in H0s]
-    preparation = _prepare_dressing(H0s, eigensystems)
-    Hi = _evaluate_terms(_compiled_model_terms(interaction_terms), parameters)
-    dressed = _track_dressing(preparation, Hi)
-    reconstruction = _ModelReconstruction(dims, H0s, eigensystems, preparation,
-        local_hamiltonians, idle_terms, interaction_terms)
-
-    return DeviceModel(components, interaction, coupling_parameters, max_dimension,
-        operators, parameters, hamiltonian,
-        to_sparse(_evaluate_terms(terms, parameters)), dressed, Dict{Any,Any}(),
-        Dict(truncation_dimensions), terms, reconstruction)
+    terms = _projected_terms(hamiltonian,components,dims)
+    H = to_sparse(_evaluate_terms(terms,parameters))
+    steps = _tracking_step_count(tracking_steps,reference_model)
+    dressed = if reference_model === nothing
+        H0s = Vector{Any}(undef,length(components))
+        function prepare_local(i)
+            c,d = components[i],dims[i]
+            H0s[i] = truncate(numerical(c.hamiltonian,c.operators,c.parameters),projection(c.dimension,1:d))
+        end
+        if threaded_components && length(components)>1 && Threads.nthreads()>1
+            Threads.@threads for i in eachindex(components)
+                prepare_local(i)
+            end
+        else
+            foreach(prepare_local,eachindex(components))
+        end
+        preparation = _prepare_dressing(H0s)
+        _track_dressing(preparation,H-preparation.H0;nsteps=steps+2)
+    else
+        _track_model_reference(components,interaction,coupling_parameters,H,dims,reference_model,steps;
+            max_dimension,threaded_components)
+    end
+    return DeviceModel(components,interaction,coupling_parameters,max_dimension,
+        operators,parameters,hamiltonian,H,dressed,Dict{Any,Any}(),Dict(truncation_dimensions),terms)
 end
 
 function _model_parameters(components, coupling_parameters)

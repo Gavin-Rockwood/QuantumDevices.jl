@@ -43,7 +43,7 @@ function make_transmon(name, EC, EJ, dimension; ng = 0, hermcheck = 10^-12)
     operators = (jump = jump, charge = charge)
     hamiltonian = 4*param(:EC)*(param(:ng) - op(:charge))^2 - 0.5 * param(:EJ)*op(:jump)
 
-    return Component(name, parameters, operators, hamiltonian, "Transmon", dimension)
+    return Component(name, parameters, operators, hamiltonian, "Transmon", dimension;basis=_ComponentBasis((:charge,dimension),Matrix(U.data)))
 end
 
 make_transmon(; name, EC, EJ, dimension, ng=0, hermcheck=10^-12) =

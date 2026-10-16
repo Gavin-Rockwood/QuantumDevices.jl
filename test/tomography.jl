@@ -70,27 +70,27 @@ end
 
     paths = ["components/1/parameters/ν", "gates/X/drive"]
     frequency_data = SequenceData(["X"], state, measurement; probabilities=datum.probabilities, shots=1000)
-    count_problem = ModelTomographyProblem(model, [datum], paths)
-    frequency_problem = ModelTomographyProblem(model, [frequency_data], paths)
+    count_problem = ModelTomographyProblem(model, [datum], paths; gates=model.gates, normalize=false)
+    frequency_problem = ModelTomographyProblem(model, [frequency_data], paths; gates=model.gates, normalize=false)
     cost(problem, values=problem.problem.u0) = problem.problem.f(values, SciMLBase.NullParameters())
     @test cost(count_problem) ≈ cost(frequency_problem)
     @test_throws ArgumentError tomography_residuals(count_problem, [0.2, 0.125])
     plain = SequenceData(["X"], state, measurement; probabilities=[0.5, 0.5])
-    @test_throws ArgumentError ModelTomographyProblem(model, [datum, plain], paths)
-    lsq = ModelTomographyProblem(model, [datum, plain], paths; loss=:least_squares, lb=[0.1, 0.05], ub=[0.3, 0.2])
+    @test_throws ArgumentError ModelTomographyProblem(model, [datum, plain], paths; gates=model.gates, normalize=false)
+    lsq = ModelTomographyProblem(model, [datum, plain], paths; gates=model.gates, normalize=false, loss=:least_squares, lb=[0.1, 0.05], ub=[0.3, 0.2])
     @test cost(lsq) ≈ sum(abs2, tomography_residuals(lsq, lsq.problem.u0))
     @test lsq.problem.lb == [0.1, 0.05]
-    @test_throws ArgumentError ModelTomographyProblem(model, [plain], paths; loss=:likelihood)
-    @test_throws ArgumentError ModelTomographyProblem(model, [plain], ["H"])
-    @test_throws ArgumentError ModelTomographyProblem(model, [plain], [paths[1], paths[1]])
-    @test_throws ArgumentError ModelTomographyProblem(model, [], paths)
+    @test_throws ArgumentError ModelTomographyProblem(model, [plain], paths; gates=model.gates, normalize=false, loss=:likelihood)
+    @test_throws ArgumentError ModelTomographyProblem(model, [plain], ["H"]; gates=model.gates, normalize=false)
+    @test_throws ArgumentError ModelTomographyProblem(model, [plain], [paths[1], paths[1]]; gates=model.gates, normalize=false)
+    @test_throws ArgumentError ModelTomographyProblem(model, [], paths; gates=model.gates, normalize=false)
     @test_throws DimensionMismatch reconstructed_model(lsq, [0.1])
     @test_throws DimensionMismatch ModelTomographyProblem(model,
-        [SequenceData([], state, measurement; counts=[1, 1, 1])], paths)
+        [SequenceData([], state, measurement; counts=[1, 1, 1])], paths; gates=model.gates, normalize=false)
     zeros_data = SequenceData([], state, measurement; counts=[0, 100])
-    @test cost(ModelTomographyProblem(model, [zeros_data], paths)) == 0
+    @test cost(ModelTomographyProblem(model, [zeros_data], paths; gates=model.gates, normalize=false)) == 0
     impossible = SequenceData([], state, measurement; counts=[100, 0])
-    @test isfinite(cost(ModelTomographyProblem(model, [impossible], paths)))
+    @test isfinite(cost(ModelTomographyProblem(model, [impossible], paths; gates=model.gates, normalize=false)))
 
     changed = reconstructed_model(lsq, [0.21, 0.13])
     @test getpath(changed, paths[1]) == 0.21
@@ -151,8 +151,8 @@ end
     @test threaded_calls[] == serial_calls > 0
     @test length(thread_ids) >= (Threads.nthreads() > 1 ? 2 : 1)
 
-    threaded_setup = ModelTomographyProblem(model, threaded_data, paths; threaded=true)
-    serial_setup = ModelTomographyProblem(model, threaded_data, paths)
+    threaded_setup = ModelTomographyProblem(model, threaded_data, paths; gates=model.gates, normalize=false, threaded=true)
+    serial_setup = ModelTomographyProblem(model, threaded_data, paths; gates=model.gates, normalize=false)
     @test cost(threaded_setup) ≈ cost(serial_setup)
     @test tomography_residuals(threaded_setup, threaded_setup.problem.u0) ≈
           tomography_residuals(serial_setup, serial_setup.problem.u0)
@@ -161,7 +161,7 @@ end
     sequences = [["X"], ["X", "X"], ["X", "idle", "X"], ["Y", "idle", "X"], ["X", "idle", "idle", "Y"]]
     data = [SequenceData(s, state, m; probabilities=predict_sequence(target, s, state, m))
         for s in sequences for m in (measurement, Measurement(sigmax()), Measurement(sigmay()))]
-    setup = ModelTomographyProblem(model, data, paths)
+    setup = ModelTomographyProblem(model, data, paths; gates=model.gates, normalize=false)
     solution = solve(setup, OptimizationOptimJL.NelderMead(); maxiters=250, abstol=1e-12, g_abstol=1e-12)
     @test solution isa SciMLBase.AbstractOptimizationSolution
     @test solution.objective < 1e-8
@@ -172,7 +172,7 @@ end
           predict_sequence(target, held_out, state, measurement) atol=1e-4
     finite_data = [SequenceData(d.sequence, d.preparation, d.measurement;
         counts=[round(Int, 10000d.probabilities[1]), 10000-round(Int, 10000d.probabilities[1])]) for d in data]
-    finite_setup = ModelTomographyProblem(model, finite_data, paths)
+    finite_setup = ModelTomographyProblem(model, finite_data, paths; gates=model.gates, normalize=false)
     finite_solution = solve(finite_setup, OptimizationOptimJL.NelderMead(); maxiters=250, abstol=1e-8)
     @test finite_solution.u ≈ [0.2, 0.125] atol=1e-3
     @test norm(predict_sequence(reconstructed_model(finite_setup, finite_solution.u), held_out, state, measurement) -
@@ -181,4 +181,52 @@ end
     wrapped = solve(setup, OptimizationOptimJL.NelderMead(); maxiters=4)
     @test wrapped.u == direct.u
     @test wrapped.retcode == direct.retcode
+end
+
+@testset "Repeated-gate normalization drift" begin
+    model = tomography_fixture(0.0, 0.125)
+    g, e = basis(2,0), basis(2,1)
+    measurement = Measurement([ket2dm(g),ket2dm(e)])
+    sequence = fill("X",128)
+    for drift in (-5e-8,5e-8), preparation in (g,ket2dm(g))
+        propagators = Dict("X" => sqrt(1+drift)*sigmax())
+        @test QD._tomography_predict(model,sequence,preparation,measurement,propagators) ≈ [1,0]
+        @test_throws ArgumentError QD._tomography_predict(model,["X"],preparation,measurement,
+            Dict("X" => 1.001*sigmax()))
+    end
+    # Missing projected population remains an absorbing leakage outcome.
+    projected = Dict("X" => sqrt(1-5e-8)*qeye(1))
+    expected = (1-5e-8)^128
+    @test QD._tomography_predict(model,sequence,g,measurement,projected;
+        basis=[g],leakage_outcome=2) ≈ [expected,1-expected] atol=1e-12
+end
+
+@testset "Optional probability normalization" begin
+    model = tomography_fixture(0.0,0.125)
+    g,e = basis(2,0),basis(2,1)
+    measurement = Measurement([ket2dm(g),ket2dm(e)])
+    seq = fill("X",128)
+    props = Dict("X"=>sqrt(1+5e-8)*qeye(1))
+    @test_throws ArgumentError QD._tomography_predict(model,seq,g,measurement,props;
+        basis=[g],leakage_outcome=2)
+    @test QD._tomography_predict(model,seq,g,measurement,props;
+        basis=[g],leakage_outcome=2,normalize_probabilities=true) ≈ [1,0]
+    for preparation in (g,ket2dm(g))
+        lost = Dict("X"=>sqrt(0.5)*qeye(1))
+        @test QD._tomography_predict(model,["X"],preparation,measurement,lost;
+            basis=[g],leakage_outcome=2,normalize_probabilities=true) ≈ [0.5,0.5]
+        @test_throws ArgumentError QD._tomography_predict(model,["X"],preparation,measurement,lost;
+            basis=[g],normalize_probabilities=true)
+    end
+    @test QD._tomography_probabilities(2*g,measurement;normalize_probabilities=true) ≈ [1,0]
+    @test_throws ArgumentError QD._tomography_probabilities(0*g,measurement;normalize_probabilities=true)
+    @test_throws ArgumentError QD._tomography_probabilities(-0.01*ket2dm(g)+1.01*ket2dm(e),
+        measurement;normalize_probabilities=true)
+    @test_throws ArgumentError QD._tomography_probabilities(NaN*g,measurement;normalize_probabilities=true)
+    record = SequenceData(["X"],g,measurement;probabilities=[0.5,0.5])
+    @test predict_sequences(model,[record];normalize_probabilities=true)[1] ≈
+        predict_sequence(model,["X"],g,measurement;normalize_probabilities=true)
+    setup = ModelTomographyProblem(model,[record],["gates/X/drive"]; gates=model.gates,
+        normalize_probabilities=true)
+    @test setup.problem.f(setup.problem.u0,nothing) < 1e-12
 end

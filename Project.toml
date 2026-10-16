@@ -4,6 +4,7 @@ version = "0.1.0-alpha.3-DEV"
 authors = ["Gavin Rockwood"]
 
 [deps]
+Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
@@ -35,6 +36,7 @@ UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 
 [compat]
+Adapt = "4"
 BenchmarkTools = "1.8.0"
 CairoMakie = ">=0.13.2"
 DifferentialEquations = ">=7.16.0"

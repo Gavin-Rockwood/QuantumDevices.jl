@@ -47,8 +47,8 @@
     @test with_gate.H === model.H
     @test with_gate.eigensystem === model.eigensystem
     rebuilt_with_gate = setpath(with_gate, "components/1/parameters/ν", 1.2)
-    @test rebuilt_with_gate.gates[:test] === gate
-    @test rebuilt_with_gate.gates !== with_gate.gates
+    @test isempty(rebuilt_with_gate.gates)
+    @test with_gate.gates[:test] === gate
 
     @test_throws ArgumentError setpath(model, "parameters", model.parameters)
     @test_throws ArgumentError setpath(model, "H", model.H)

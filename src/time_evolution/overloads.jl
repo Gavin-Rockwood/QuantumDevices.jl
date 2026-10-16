@@ -11,27 +11,28 @@ state_amplitudes(references::AbstractDict, solution::QuantumToolbox.TimeEvolutio
 
 """
     sesolve(model::DeviceModel, gate::DeviceGate, initial, times;
-            energy_shift=:auto, dense=false, kwargs...)
+            energy_shift=:auto, dense=true, kwargs...)
 
 Evolve a ket, rectangular operator, or vector of kets using the model and gate.
 Frequency units are converted with `numerical(...; scalar=2pi)`, and pulse event
 stops are supplied automatically. `energy_shift=:auto` subtracts the mean idle
 energy of the input states during integration and restores global phase at each
 saved time. An explicit offset is in frequency units; `energy_shift=0` disables it.
-`dense=true` constructs dense Hamiltonian matrices before integration; the default
-preserves their usual storage.
+`dense=true` (default) constructs dense Hamiltonian and initial-state matrices.
+`dense=false` preserves the original storage.
 Returns the native QuantumToolbox solution and forwards native solver options.
 User integrator callbacks observe the centered state during integration.
 """
 function QuantumToolbox.sesolve(model::DeviceModel, gate::DeviceGate,
     initial::Union{QuantumObject,AbstractVector{<:QuantumObject}}, times::AbstractVector;
-    energy_shift=:auto, dense::Bool=false, kwargs...)
+    energy_shift=:auto, dense::Bool=true, kwargs...)
     isempty(times) && throw(ArgumentError("Evolution times cannot be empty"))
     columns = initial isa AbstractVector ? _state_columns(initial) : initial
     shift = _energy_shift(model.H, columns, energy_shift)
     evaluate = _prepared_gate_numerical(model, gate; scalar=2pi, energy_shift=shift, dense)
     stops = filter(t -> first(times) < t < last(times), pulse_tstops(gate))
     options = merge((; tstops=stops), (; kwargs...))
+    columns = _numerical_storage(columns, dense)
     solution = QuantumToolbox.sesolve(evaluate(gate), columns, times; options...)
     return _restore_global_phase!(solution, 2pi*shift, first(times))
 end

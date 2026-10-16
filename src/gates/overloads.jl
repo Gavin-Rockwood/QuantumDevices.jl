@@ -19,15 +19,16 @@ _check_gate_endpoints(value, idle, duration) = value == idle
 _check_gate_endpoints(pulse::AbstractPulse, idle, duration) = pulse(0.0) == idle && pulse(duration) == idle
 
 """
-    numerical(model::DeviceModel, gate::DeviceGate; scalar=1, dense=false)
+    numerical(model::DeviceModel, gate::DeviceGate; scalar=1, dense=true)
 
 Combine the projected idle Hamiltonian and gate drive with gate parameter overrides.
 Overrides of idle parameters must equal their idle values at both endpoints.
-`dense=true` materializes all operator matrices as dense matrices at construction.
+`dense=true` (default) materializes operator matrices at construction.
+Use `dense=false` to preserve the original storage.
 `scalar` is folded into each operator matrix and constant coefficient before
 constructing the Hamiltonian. Use `scalar=2pi` when passing it to native `sesolve`.
 """
-function numerical(model::DeviceModel, gate::DeviceGate; scalar::Number=1, dense::Bool=false)
+function numerical(model::DeviceModel, gate::DeviceGate; scalar::Number=1, dense::Bool=true)
     combined = _gate_parameters(model, gate)
     dims = [get(model.truncation_dimensions, c, c.dimension) for c in model.components]
     drive_terms = _projected_terms(gate.hamiltonian, model.components, dims)
@@ -79,14 +80,14 @@ function pulse_tstops(gate::DeviceGate)
     return isempty(stops) ? Float64[] : collect(promote(stops...))
 end
 
-function get_unitary(model::DeviceModel, gate::DeviceGate; kwargs...)
+function get_unitary(model::DeviceModel, gate::DeviceGate; dense::Bool=true, kwargs...)
     options = merge((; tstops=pulse_tstops(gate)), (; kwargs...))
-    return _get_unitary_angular(numerical(model, gate; scalar=2pi), gate.duration; options...)
+    return _get_unitary_angular(numerical(model, gate; scalar=2pi, dense), gate.duration; dense, options...)
 end
 
 """
     numerical(model::DeviceModel, gate::DeviceGate, states;
-              output_states=states, frame=:lab, energy_shift=:auto, dense=false, kwargs...)
+              output_states=states, frame=:lab, energy_shift=:auto, dense=true, kwargs...)
 
 Return a dimensionless `QuantumObject` operator in the supplied ordered state basis.
 Its dimensions are the number of selected states; `.data` gives the gate matrix.
@@ -107,12 +108,13 @@ The two-argument `numerical(model, gate)` returns the Hamiltonian in frequency
 units; this three-argument form returns its evolved action on the selected states.
 """
 function numerical(model::DeviceModel, gate::DeviceGate, states;
-    output_states=states, frame=:lab, energy_shift=:auto, dense::Bool=false, kwargs...)
+    output_states=states, frame=:lab, energy_shift=:auto, dense::Bool=true, kwargs...)
     initial, output = _gate_bases(states, output_states)
     projection = _prepare_gate_projection(output, frame, model.H)
     options = merge((; tstops=pulse_tstops(gate)), (; kwargs...))
     shift = _energy_shift(model.H, initial, energy_shift)
     evaluate = _prepared_gate_numerical(model, gate; scalar=2pi, energy_shift=shift, dense)
+    initial = _numerical_storage(initial, dense)
     columns = _evolve_gate_columns(evaluate(gate), initial, gate.duration;
         phase_shift=2pi*shift, options...)
     return QuantumObject(_project_gate_columns(columns, projection, gate.duration); type=Operator())

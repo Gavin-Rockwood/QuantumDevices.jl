@@ -33,23 +33,26 @@ Reconstruction follows the changed inputs:
 | Update | Recomputed | Reused |
 |---|---|---|
 | Gate parameters | Updated gate and its propagator when evolved | Idle Hamiltonian, component bases, dressed states |
-| Interaction strengths | Interaction coefficients, idle Hamiltonian, dressed-state tracking | Local eigensystems, uncoupled preparation, projected operator terms |
-| Interaction expression | Interaction operator terms and Hamiltonian, dressed-state tracking | Component bases and uncoupled preparation |
-| Component physics, such as transmon `EC` or `EJ` | Affected component basis/operators, dependent projections and Hamiltonian terms, dressed-state tracking | Unchanged components and their preparation |
+| Interaction strengths | Normal model assembly and dressed-state tracking | Existing components |
+| Interaction expression | Normal model assembly and dressed-state tracking | Existing components |
+| Component physics, such as transmon `EC` or `EJ` | Affected component basis/operators, normal model assembly and dressed-state tracking | Unchanged component objects |
 | Dimensions, truncations, or dimension limit | Complete model reconstruction | Existing component objects when applicable |
 
 A transmon physical update reconstructs its parent charge-basis eigensystem and
 transforms its operators before projection to the retained space. Products such
-as `charge^2` are recomputed in the parent space before projection. Other
-components do not get rediagonalized for this update.
+as `charge^2` are recomputed in the parent space before projection. The normal builder prepares the complete model from these components.
 
 Derived properties cannot be replaced directly. Component names and order must
 survive a model component update. Supported updates do not change the original
-model; unchanged branches and read-only preparation can be shared. Use these
+model; unchanged component objects can be shared. Use these
 updates rather than mutating cached matrices or physical input containers.
 
-The reconstruction cache is derived and is rebuilt when loading a saved model;
-the bundle schema does not change.
+There is no incremental reconstruction cache. Physical rebuilding uses `make_model`
+and does not copy gates. Tomography can match against a fixed initial eigenbasis
+with `reference_model=:initial, tracking_steps=0`. Zero means no intermediate
+models, not frozen states: the candidate Hamiltonian is diagonalized once.
+Pass gate definitions explicitly to sequence tomography. The bundle schema is
+unchanged; built-in constructors regenerate physical basis metadata when loaded.
 
 Custom pulse types can expose selectable values through `parameters(pulse)`;
 see the [extension guide](../development/extensions.md).

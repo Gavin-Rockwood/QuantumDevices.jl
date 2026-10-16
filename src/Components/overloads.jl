@@ -24,7 +24,7 @@ function _rebuild_component(component::Component, changes)
     name === component.name && p === component.parameters && dimension === component.dimension && return component
     constructor = get(COMPONENT_CONSTRUCTORS, component.type, nothing)
     constructor === nothing &&
-        return Component(name, p, component.operators, component.hamiltonian, component.type, dimension)
+        return Component(name, p, component.operators, component.hamiltonian, component.type, dimension;basis=dimension == component.dimension ? component.basis : nothing)
     rebuilt = constructor(; name, dimension, p...)
     for parameter in keys(p)
         if p[parameter] != component.parameters[parameter] &&

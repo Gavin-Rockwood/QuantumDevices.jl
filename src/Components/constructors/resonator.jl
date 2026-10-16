@@ -19,7 +19,7 @@ function make_resonator(name, frequency, dimension)
     operators = (a=a, adag=a', n=num(dimension))
     parameters = (frequency=frequency,)
     hamiltonian = param(:frequency) * op(:n)
-    return Component(name, parameters, operators, hamiltonian, "Resonator", dimension)
+    return Component(name, parameters, operators, hamiltonian, "Resonator", dimension;basis=_ComponentBasis((:fock,dimension),nothing))
 end
 
 make_resonator(; name, frequency, dimension) = make_resonator(name, frequency, dimension)
