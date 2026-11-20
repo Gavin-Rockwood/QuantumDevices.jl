@@ -2,100 +2,121 @@
 
 ## Custom components
 
-Provide local quantum operators, named parameters, and a symbolic Hamiltonian.
-The parent dimension must match every operator. A custom component's operators
-are preserved during parameter updates. If changing its physical parameters also
-changes its basis, register a reconstruction function in
-`QuantumDevices.COMPONENT_CONSTRUCTORS` under the component's type string. The
-constructor must accept `name`, `dimension`, and its stored parameters as keywords.
-Registered components are reconstructed from parameters in saved bundles; unregistered custom
-components use a JLD2 artifact instead. This registry is an internal extension
-point and may change with the bundle format.
+Provide matching string-keyed variable/default and operator/factory maps, and an owner-aware symbolic Hamiltonian. Constructors do not
+generate operators or diagonalize a basis; the recipe builder does that work.
 
 ```@example extensions
-using QuantumDevices, QuantumToolbox
-custom = Component("custom", (; gap=1.0), (; z=sigmaz(), x=sigmax()),
-                   0.5param(:gap) * op(:z), "custom", 2)
-model = make_model([custom], val(0), (;))
-@assert size(model.H) == (2,2)
-model.parameters.custom_gap
+using QuantumDevices
+import QuantumToolbox as QT
+variables, idle = component_parameters(:custom; gap=1.0)
+operators, operator_generators = component_operators(:custom;
+    z=OperatorGenerator((d;kwargs...)->QT.sigmaz(),2))
+custom = Component(:custom; variables, parameters=idle, operators, operator_generators,
+    hamiltonian=0.5variables["gap"] * operators["z"])
+device = QuantumDevice(:example)
+add_component!(device, custom)
+model = build(device, Recipe(device,[custom]))
+@assert length(model.spectrum)==2
+custom.parameters["gap"]
 ```
 
-## Custom envelopes and carriers
+To share a Symbolics variable across components, supply it unchanged in each
+component's variable map and give it the same idle value under the corresponding local key in each parameter map.
 
-Use `Envelope(f, parameters)` for a custom dimensionless `f(p, t, duration)`
-shape. Time is relative to pulse onset. Amplitude, baseline, and timing belong
-to the enclosing `Pulse`.
+## Custom envelopes
+
+Use `Envelope(f, parameters; duration=T)` for a custom dimensionless
+`f(p, u)` on normalized time `u∈[0,1]`. Amplitude, baseline, delay and carrier
+belong to the enclosing `Pulse`; its duration forwards the envelope reference.
 
 ```@example extensions
-shape = Envelope((p,t,duration) -> p.scale * sinpi(t/duration)^2, (; scale=1.0))
+shape = Envelope((p,u) -> p.scale * sinpi(u)^2, (; scale=1.0); duration=1.0)
 pulse = Pulse(shape; amplitude=0.2, duration=1.0)
 @assert pulse(0.5) ≈ 0.2
-parameters(pulse)["envelope/scale"]
+parameters(pulse)["envelope/parameters/scale"]
 ```
 
-`Carrier(f, parameters; reference=:pulse)` accepts `f(p,t)` and chooses a pulse
-or gate clock. Its named parameters are also discoverable. Interactive closures
-work in memory; persistent custom callables need their defining code available
-when loading. Built-in shapes and carriers require no user-defined module.
+Use the positional frequency overload `Pulse(shape, frequency; phase=0, reference=:pulse)`
+for a constant carrier. Arbitrary custom carriers are not part of the current public API.
+Interactive envelope closures work in memory; portable bundles need registered callable definitions.
 
 ## Custom envelope subtypes
 
 ```@example customenvelope
 using QuantumDevices
+import Symbolics
 struct LevelEnvelope <: AbstractEnvelope
     value::Float64
 end
 QuantumDevices.envelope_value(shape::LevelEnvelope, t, duration) = shape.value
 pulse = Pulse(LevelEnvelope(0.2); duration=1.0)
-updated = setpath(pulse, "envelope/value", 0.4)
+updated = setpath(pulse, "envelope/source/value", 0.4)
 @assert pulse(0.0) == 0.2
 updated(0.0)
 ```
 
-Custom subtypes implement `envelope_value(shape, local_time, duration)`, and may
+Custom physical-time subtypes are adapted internally when a Pulse duration is supplied;
+the example path descends through that adapter's `source` field. Prefer the common
+normalized Envelope for new portable code. Custom subtypes implement
+`envelope_value(shape, local_time, duration)`, and may
 specialize `validate_envelope(shape, duration)`. Structural fields are discovered
-recursively. Custom carrier subtypes implement
-`carrier_value(carrier, local_time, gate_time)`. Pulse evaluation requires finite
+recursively. Pulse evaluation requires finite
 scalar values. The default immutable reconstruction calls the positional outer
 constructor; computed fields may need a qualified `_replace_property` overload.
 
 ## Calibration objectives
 
-Pass `objective(model, candidate_gate, target)` to `CalibrationProblem`.
+Pass `objective(target_matrix, projected_operator)` to `CalibrationProblem`.
 Define the full loss, subspace treatment, and leakage penalty explicitly. The
 wrapper only discovers selected finite real parameters and reconstructs gates;
-it does not choose optimizer algorithms, gradients, bounds policy, or noise metrics.
+explicit algorithm arguments select native backends; the default is bound-aware NLopt Nelder–Mead. Gradients, bounds policy and noise metrics remain caller choices.
 
 ## Persistence hooks
 
-Qualified internal hooks `QuantumDevices._control_record(control, directory, index)`
-and `QuantumDevices._restore_control(::Val{:tag}, data, directory)` add envelope,
-carrier, or pulse formats. Use a unique type tag and controlled local artifact
-filenames. Load extension definitions before restoring their records.
-
-```@example customenvelope
-QuantumDevices._control_record(shape::LevelEnvelope, directory, index) =
-    Dict("type" => "level_demo", "value" => shape.value)
-QuantumDevices._restore_control(::Val{:level_demo}, data, directory) =
-    LevelEnvelope(Float64(data["value"]))
-model = make_model([make_qubit("q", 0.0)], val(0), (;))
-model.gates[:level] = DeviceGate((; drive=pulse), param(:drive) * op(:q_x))
-mktempdir() do directory
-    path = save(joinpath(directory, "device"), model)
-    restored = load(path)
-    @assert restored.gates[:level].parameters.drive.envelope isa LevelEnvelope
-    @assert restored.gates[:level].parameters.drive(0.5) == 0.2
-    println("Custom envelope format restored")
-end
-```
-
-These hooks are internal extension points and may change with the bundle format.
-They never evaluate stored source. Component persistence and symbolic-operation
-allowlists continue to apply independently.
+Use `register_io_codec!` for explicitly registered custom types with versioned
+encode/decode callbacks. See the [persistence guide](../user_guide/persistence.md)
+for source registration and portability requirements. Builtin normalized envelopes
+store shape configuration and reference duration; derived caches are reconstructed.
+Do not rely on removed `_control_record` hooks or serialize anonymous closures as portable bundles.
 
 Custom envelopes with joins or discontinuities can define
 `envelope_tstops(shape, duration)` to return interior times relative to pulse
 onset. `pulse_tstops` validates the stops, adds the pulse boundaries, and shifts
 them by its delay. Carrier frequencies use cycles per unit time; IQ modulation
 uses the convention documented in the [pulse guide](../user_guide/pulses.md).
+
+## Tracking and labeling implementation
+
+State tracking lives in `src/utils/tracking/`. Its `track_states.jl` loop matches
+states, reorders their auxiliary data, updates continuity metrics, and retains
+requested samples. Input checks live in `validation.jl`; matching methods live in
+`trackers/quick.jl` and `trackers/global.jl`, each returning candidate indices and
+matched amplitudes in reference order. `overloads.jl` handles array/property
+behavior, while `display.jl` contains printing and key-range formatting.
+
+All dressing code lives in `src/utils/tracking/dressed_states/`.
+`dressed_states.jl` follows the product preparation, batched ramp diagonalization,
+tracking, and final organization flow in one file, with options, result types,
+and display methods alongside it. Model construction calls that feature.
+
+Recipe validation has three boundaries. Constructors and edit methods report
+immediate local mistakes. Capture then resolves names, checks active-path cycles,
+and validates aliases, disjoint ownership, scoped operator bindings, current device
+operator declarations, and selection forms while it copies the tree. Frozen recipe
+storage does not certify compatibility with a different device. Device-less frozen
+provenance may reuse storage; execution still passes through device-bound capture.
+
+Preparation consumes that captured tree and resolves dimensions, index bounds,
+limits, generator configuration, physical terms, and operating-point parameters.
+Leaf generator configuration is retained in the disposable build node, so numerical
+assembly takes no device argument and only checks actual generated QuantumObjects
+and their dimensions. Occupation labels remain deferred until upstream models exist.
+`make_hamiltonian` follows capture/preparation without allocating numerical operators
+or enforcing the numerical tensor-size cap.
+
+Default declarations are checked before operating-point overrides. Missing values
+are diagnosed at the occurrence that needs them: an override on an unrelated input
+branch cannot satisfy that use. Gate-only upstream assignments follow the owners
+of their added operator terms and shared-variable values must agree across uses.
+These checks do not introduce persistent validation flags, model caches, or additional
+immutability guarantees.

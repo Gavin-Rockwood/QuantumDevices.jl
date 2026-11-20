@@ -60,6 +60,9 @@ const watchers = [
     if (filename && path.extname(filename) && !generated.has(filename.replaceAll(path.sep, '/'))) schedule()
   }),
   watch(path.join(docs, 'make.jl'), schedule),
+  watch(path.join(docs, 'examples', 'tutorials'), (_event, filename) => {
+    if (filename?.endsWith('.jl')) schedule()
+  }),
 ]
 for (const watcher of watchers) {
   watcher.on('error', error => { console.error(`File watching failed: ${error.message}`); stop(1) })

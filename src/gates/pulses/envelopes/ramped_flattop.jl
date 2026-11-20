@@ -1,61 +1,55 @@
-const _RAMP_NAMES = (:sine_squared, :linear, :smoothstep)
-function _validate_ramp(source, split, rising)
-    _require_finite_real("split", split)
-    0 < split < 1 || throw(ArgumentError("Ramp split must lie strictly between 0 and 1"))
-    source isa Symbol && source in _RAMP_NAMES && return nothing
-    source isa AbstractEnvelope || throw(ArgumentError("Ramp must be an envelope or one of $_RAMP_NAMES"))
-    validate_envelope(source, 1.0)
-    _require_finite("Ramp value", _ramp_value(source, 0.5, split, rising))
-    return nothing
+const _RAMP_NAMES=(:sine_squared,:linear,:smoothstep)
+# Source envelopes contribute normalized payloads, not a second duration owner.
+_ramp_source(s::NamedTuple)=s
+_ramp_source(s::Envelope)=(shape=s.shape,rise=s.rise,fall=s.fall)
+function _ramp_source(s::Symbol)
+    s in _RAMP_NAMES || throw(ArgumentError("Unknown ramp"))
+    return s
 end
-
+function _ramp_value(s,u,rising)
+    s isa NamedTuple && return _shape_value(s.shape,u)
+    x=rising ? u : 1-u
+    s===:linear && return x
+    s===:smoothstep && return x*x*(3-2x)
+    return sinpi(x/2)^2
+end
 """
-    RampedFlattop(ramp_time; ramp=:sine_squared, ramp_up=ramp, ramp_down=ramp,
-                 rise_time=ramp_time, fall_time=ramp_time,
-                 split=0.5, split_up=split, split_down=split)
+    RampedFlattop(ramp_time;duration,ramp=:sine_squared)
 
-Unit-height flattop with independent physical rise/fall times. Ramps default to
-sin²; `:linear`, `:smoothstep`, and constructed envelope objects are supported.
-Reused envelopes are sampled on normalized source time `0:1`; each side subtracts
-its endpoint and normalizes its split value to one. Source widths therefore use
-normalized units. This does not force monotonicity or prevent overshoot.
-All source parameters remain discoverable, including nested ramps.
+Direct normalized rise/plateau/fall envelope. Envelope ramp sources sample forward; supply rising/falling views explicitly.
+Returns an Envelope with a physical reference duration and normalized shape payload.
 """
-struct RampedFlattop{U,D,R<:Real,F<:Real,SU<:Real,SD<:Real} <: AbstractEnvelope
+struct RampedFlattop{R,F,U,D}
     rise_time::R
     fall_time::F
     ramp_up::U
     ramp_down::D
-    split_up::SU
-    split_down::SD
-    function RampedFlattop(rise::R, fall::F, up::U, down::D, su::SU, sd::SD) where {R<:Real,F<:Real,U,D,SU<:Real,SD<:Real}
-        _require_finite_real("rise_time", rise) >= 0 || throw(ArgumentError("rise_time must be nonnegative"))
-        _require_finite_real("fall_time", fall) >= 0 || throw(ArgumentError("fall_time must be nonnegative"))
-        _validate_ramp(up, su, true)
-        _validate_ramp(down, sd, false)
-        new{U,D,R,F,SU,SD}(rise, fall, up, down, su, sd)
-    end
+    RampedFlattop(::Val{:raw},r,f,u,d)=new{typeof(r),typeof(f),typeof(u),typeof(d)}(r,f,u,d)
 end
-function RampedFlattop(ramp_time; ramp=:sine_squared, ramp_up=ramp, ramp_down=ramp,
-                      rise_time=ramp_time, fall_time=ramp_time,
-                      split=0.5, split_up=split, split_down=split)
-    return RampedFlattop(rise_time, fall_time, ramp_up, ramp_down, split_up, split_down)
+function RampedFlattop(r;duration=nothing,ramp=:sine_squared,rise_time=r,fall_time=r,ramp_up=ramp,ramp_down=ramp,rise=nothing,fall=nothing)
+    _require_positive_width("duration",duration)
+    _require_finite_real("rise_time",rise_time)>=0 || throw(ArgumentError("Negative rise"))
+    _require_finite_real("fall_time",fall_time)>=0 || throw(ArgumentError("Negative fall"))
+    _checked_time_add(rise_time,fall_time)<=duration || throw(ArgumentError("Ramps must fit duration"))
+    s=RampedFlattop(Val(:raw),rise_time/duration,fall_time/duration,_ramp_source(ramp_up),_ramp_source(ramp_down))
+    return _wrap_shape(s,duration,rise,fall)
 end
-
-function _ramp_value(source::Symbol, x, split, rising)
-    x <= 0 && return zero(x)
-    x >= 1 && return one(x)
-    source === :sine_squared && return sinpi(x / 2)^2
-    source === :linear && return x
-    source === :smoothstep && return x^2 * (3 - 2x)
-    throw(ArgumentError("Unknown ramp $source"))
+function _shape_value(s::RampedFlattop,u)
+    u<s.rise_time && return _ramp_value(s.ramp_up,u/s.rise_time,true)
+    (u<1-s.fall_time || iszero(s.fall_time)) && return one(u)
+    return _ramp_value(s.ramp_down,u==1 ? one(u) : (u-(1-s.fall_time))/s.fall_time,false)
 end
-function _ramp_value(source::AbstractEnvelope, x, split, rising)
-    baseline = source(rising ? 0.0 : 1.0, 1.0)
-    peak = source(split, 1.0)
-    peak != baseline || throw(ArgumentError("Ramp split must differ from its endpoint"))
-    x <= 0 && return zero(peak)
-    x >= 1 && return one(peak)
-    sample = rising ? split * x : 1 - (1 - split) * x
-    return (source(sample, 1.0) - baseline) / (peak - baseline)
+function _shape_tstops(s::RampedFlattop)
+    result=Real[]
+    s.rise_time>0 && push!(result,s.rise_time)
+    s.fall_time>0 && push!(result,1-s.fall_time)
+    s.ramp_up isa NamedTuple && append!(result,s.rise_time.*collect(_shape_tstops(s.ramp_up.shape)))
+    s.ramp_down isa NamedTuple && append!(result,1-s.fall_time .+ s.fall_time.*collect(_shape_tstops(s.ramp_down.shape)))
+    return sort!(unique(result))
 end
+_ramp_physical(s::Symbol,d)=s
+_ramp_physical(s::NamedTuple,d)=Envelope(Val(:raw),s.shape,d,s.rise,s.fall)
+_physical_parameters(s::RampedFlattop,d)=(rise_time=s.rise_time*d,fall_time=s.fall_time*d,
+    ramp_up=iszero(s.rise_time) ? s.ramp_up : _ramp_physical(s.ramp_up,s.rise_time*d),
+    ramp_down=iszero(s.fall_time) ? s.ramp_down : _ramp_physical(s.ramp_down,s.fall_time*d))
+_shape_from_physical(::RampedFlattop,p,d)=RampedFlattop(p.rise_time;duration=d,fall_time=p.fall_time,ramp_up=p.ramp_up,ramp_down=p.ramp_down).shape

@@ -1,89 +1,81 @@
-carrier_value(c::SineCarrier, local_time, gate_time) =
-    sinpi(2c.frequency * (c.reference === :pulse ? local_time : gate_time) + c.phase / pi)
-carrier_value(c::Carrier, local_time, gate_time) =
-    c.callable(c.parameters, c.reference === :pulse ? local_time : gate_time)
-
-function carrier_value(c::IQCarrier, local_time, gate_time)
-    clock = c.reference === :pulse ? local_time : gate_time
-    angle = 2c.frequency*clock+c.phase/pi
-    return complex(sinpi(angle), cospi(angle))
+function _pulse_value(p::Pulse, t, sequence_time)
+    p.delay<=t<=p.delay+p.duration || return p.offset
+    local_time=t==p.delay+p.duration ? p.duration : t-p.delay
+    return _require_finite(
+        "Pulse value",
+        p.offset+p.amplitude*_modulate(
+            p.carrier,
+            p.envelope(local_time, p.duration),
+            local_time,
+            sequence_time,
+        ),
+    )
 end
-_modulate_envelope(::Nothing, shape, local_time, gate_time) = shape
-_modulate_envelope(c::AbstractCarrier, shape, local_time, gate_time) =
-    shape*_require_finite("Carrier value", carrier_value(c, local_time, gate_time))
-function _modulate_envelope(c::IQCarrier, shape, local_time, gate_time)
-    quadratures = _require_finite("Carrier value", carrier_value(c, local_time, gate_time))
-    return real(shape)*real(quadratures)+imag(shape)*imag(quadratures)
+function _pulse_value(p::PulseSequence, t, sequence_time)
+    p.delay<=t<=p.delay+p.duration || return p.offset
+    local_time=t-p.delay
+    previous=zero(local_time)
+    for (i, child) in enumerate(p.pulses)
+        onset=previous+child.delay
+        stop=onset+child.duration
+        if onset<=local_time && (local_time<stop || (i==length(p.pulses) && local_time==p.duration))
+            child_time=local_time==stop ? child.delay+child.duration : local_time-previous
+            return _pulse_value(child, child_time, local_time)
+        end
+        previous=stop
+    end
+    return p.offset
 end
-
-function (pulse::Pulse)(t::Real)
+function (p::AbstractPulse)(t::Real)
+    _require_resolved_pulse(p)
     _require_finite_real("time", t)
-    pulse.delay <= t <= pulse.delay + pulse.duration || return pulse.offset
-    local_time = t - pulse.delay
-    # Use the exact stored duration at the end even after floating-point addition.
-    t == pulse.delay + pulse.duration && (local_time = pulse.duration)
-    shape = pulse.envelope(local_time, pulse.duration)
-    signal = _modulate_envelope(pulse.carrier, shape, local_time, t)
-    return _require_finite("Pulse value", pulse.offset + pulse.amplitude * signal)
+    return _pulse_value(p, t, t)
+end
+"""
+    pulse_tstops(control)
+
+Return sorted unique physical control boundaries, joins and interpolation knots,
+including delay and nested sequence placement. Supply these times to an integrator.
+"""
+pulse_tstops(p::Pulse) = sort!(
+    unique(
+        vcat([p.delay, p.delay+p.duration], p.delay .+ _validated_envelope_tstops(p.envelope, p.duration)),
+    ),
+)
+function pulse_tstops(p::PulseSequence)
+    result=Real[p.delay, p.delay+p.duration]
+    start=p.delay
+    for child in p.pulses
+        append!(result, start .+ pulse_tstops(child))
+        start+=child.delay+child.duration
+    end
+    return sort!(unique(result))
 end
 
-function _add_control_parameter!(result, name, path, value)
-    if value isa Union{AbstractEnvelope,AbstractCarrier,AbstractPulse}
-        for (child_name, (child_path, leaf)) in parameters(value)
-            result["$name/$child_name"] = ("$path/$child_path", leaf)
-        end
-    elseif value isa NamedTuple
-        for (key, entry) in pairs(value)
-            _add_control_parameter!(result, "$name/$key", "$path/$key", entry)
-        end
+# Offsets alone may name a captured model reference. Never consult variable
+# metadata, pulse targets, or interaction defaults when resolving a baseline.
+function _validate_pulse_offset(offset)
+    if offset isa Num
+        is_parameter(offset) || throw(ArgumentError("pulse offset must be numeric or an atomic Symbolics reference"))
     else
-        result[name] = (path, value)
+        _require_finite("offset", offset)
     end
-    return result
+    return offset
 end
-function _collect_control_parameters!(result, object)
-    for key in fieldnames(typeof(object))
-        key === :callable && continue
-        value = getfield(object, key)
-        if key === :parameters && value isa NamedTuple
-            for (name, entry) in pairs(value)
-                # Keep explicit paths for parameters shadowed by structural fields.
-                path = hasproperty(object, name) ? "parameters/$name" : String(name)
-                _add_control_parameter!(result, path, path, entry)
-            end
-        else
-            _add_control_parameter!(result, String(key), String(key), value)
-        end
-    end
-    return result
+function _reference_offset(offset, reference)
+    offset isa Num || return offset
+    haskey(reference, offset) || throw(ArgumentError("pulse offset reference $offset is missing from model.parameters"))
+    return reference[offset]
 end
-parameters(object::Union{AbstractEnvelope,AbstractCarrier,AbstractPulse}) =
-    _collect_control_parameters!(Dict{String,Tuple}(), object)
-
-function _validate_timed_control(pulse::AbstractPulse)
-    _require_finite_real("Pulse duration", pulse.duration) > 0 || throw(ArgumentError("Pulse duration must be positive"))
-    _require_finite_real("Pulse delay", pulse.delay) >= 0 || throw(ArgumentError("Pulse delay must be nonnegative"))
-    end_time = _require_finite_real("Pulse end time", pulse.delay + pulse.duration)
-    end_time >= pulse.delay || throw(ArgumentError("Pulse end time overflowed"))
-    _require_finite("Pulse value", pulse(0.0))
-    _require_finite("Pulse value", pulse(pulse.delay))
-    _require_finite("Pulse value", pulse(end_time))
-    return end_time
+function _resolve_pulse(p::Pulse, reference)
+    return Pulse(p.envelope, p.carrier, p.amplitude,
+        _reference_offset(p.offset, reference), p.duration, p.delay)
 end
-
-pulse_tstops(pulse::AbstractPulse) = [pulse.delay, pulse.delay + pulse.duration]
-function pulse_tstops(pulse::Pulse)
-    stops = envelope_tstops(pulse.envelope, pulse.duration)
-    all(t -> t isa Real && isfinite(t), stops) ||
-        throw(ArgumentError("Envelope stops must be finite real times"))
-    return sort!(unique(vcat([pulse.delay, pulse.delay+pulse.duration],
-        [pulse.delay+t for t in stops if 0 < t < pulse.duration])))
-end
-
-Base.show(io::IO, pulse::Pulse) = _show_pulse_summary(io, pulse)
-
-function Base.show(io::IO, ::MIME"text/plain", pulse::Pulse)
-    get(io, :compact, false) && return show(io, pulse)
-    println(io, "Pulse")
-    _show_pulse_details(io, pulse)
+_resolve_pulse(p::PulseSequence, reference) = PulseSequence(
+    (_resolve_pulse(child, reference) for child in p.pulses)...;
+    offset=_reference_offset(p.offset, reference), delay=p.delay)
+function _require_resolved_pulse(p::AbstractPulse)
+    p.offset isa Num && throw(ArgumentError("pulse offset $(p.offset) requires a model reference; compile with make_hamiltonian(model, gate) or build(device, gate)"))
+    p isa PulseSequence && foreach(_require_resolved_pulse, p.pulses)
+    return nothing
 end

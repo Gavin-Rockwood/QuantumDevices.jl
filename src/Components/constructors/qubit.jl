@@ -1,23 +1,16 @@
-"""
-    make_qubit(name, ν)
-    make_qubit(; name, ν, dimension=2)
-
-Construct a two-level component with `H = ν * Z / 2` and operators `x`, `y`, `z`,
-`p`, and `m` from QuantumToolbox. The input `ν` is a frequency, `E/h`, in cycles per unit time
-(e.g. GHz for time in ns). Evolution uses `2π * H`. The dimension
-is fixed at two. This Pauli convention assigns `+ν/2` to the first basis vector;
-do not infer ground-state labels from its array index.
-"""
-function make_qubit(name, ν)
-    parameters = (ν=ν,)
-    operators = (x=sigmax(), y=sigmay(), z=sigmaz(), p=sigmap(), m=sigmam())
-    hamiltonian = 0.5*param(:ν)*op(:z)
-    return Component(name, parameters, operators, hamiltonian, "qubit", 2;basis=_ComponentBasis((:qubit,2),nothing))
+"""Construct a Pauli qubit with `frequency * z / 2`; `subscript` selects its variable suffix."""
+function make_qubit(name; frequency = 5.0, label = string(name), metadata = (;), subscript = missing)
+    variables, parameters = component_parameters(name; subscript, ν=frequency)
+    ν = variables["ν"]
+    paulis = Dict(:x => sigmax, :y => sigmay, :z => sigmaz)
+    generators = Dict(
+        string(local_name) => OperatorGenerator(
+            BuiltinGenerator(Symbol("pauli_",local_name)),
+            2,
+        ) for (local_name, matrix) in paulis
+    )
+    operators, operator_generators = component_operators(name,
+        generators)
+    return Component(name; variables, parameters, operators, operator_generators,
+        hamiltonian=0.5 * ν * op(name, :z), type="qubit", label, metadata)
 end
-
-function make_qubit(; name, ν, dimension=2)
-    dimension == 2 || throw(ArgumentError("Qubit dimension is fixed at 2"))
-    return make_qubit(name, ν)
-end
-
-COMPONENT_CONSTRUCTORS["qubit"] = make_qubit

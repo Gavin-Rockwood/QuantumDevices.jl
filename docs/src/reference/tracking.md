@@ -2,10 +2,12 @@
 
 ```@docs
 track_states
-get_dressed_states
-QuantumDevices.TrackingResult
+TrackingResult
+TrackedData
+LabelDiagnostic
+DressedStates
+parameters
 getpath
 haspath
 setpath
-setpath!
 ```

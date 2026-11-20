@@ -29,6 +29,9 @@ The build executes Markdown examples and doctests, checks exported docstrings,
 generates Markdown, runs `npm ci`, and builds VitePress. It does not deploy by
 default. `DOCS_DEPLOY=true` enables deployment and is set only in the documentation
 workflow; Documenter also checks the GitHub event before publishing.
+For a production dev artifact without publishing, run
+`DOCS_DEPLOY_LINKS=true julia --startup-file=no --project=docs docs/make.jl`.
+This includes version-navigation scripts while leaving deployment disabled.
 
 For live editing, run these commands from the repository root:
 
@@ -37,12 +40,26 @@ npm --prefix docs ci
 npm --prefix docs run docs:dev
 ```
 
-The transmon–resonator tutorial is generated with Literate.jl from
-`docs/src/tutorials/transmon_resonator_control.jl`. Edit its prose in `#` comments and its Julia code directly in that
-file; the build generates the Markdown page and executes its code blocks.
-Do not edit the generated `docs/src/tutorials/transmon_resonator_control.md`.
+The active single-source tutorial scripts live in `docs/examples/tutorials`.
+`docs/make.jl` generates their pages under `docs/src/tutorials` with Literate.
+Full workflows are rendered as non-executing Julia; small explicitly named
+`@example` waveform plots run during normal builds. Running either script directly
+executes its original-size model, scans and calibration, so do so deliberately.
+To execute both complete tutorials and embed every calibration, population and
+Floquet figure, stop `docs:dev` and run:
 
-`docs:dev` watches `docs/src` and regenerates Markdown in Documenter's draft mode
+```sh
+DOCS_RUN_TUTORIALS=true julia --startup-file=no --project=docs docs/make.jl
+npm --prefix docs run docs:preview
+```
+
+This explicitly runs the original-size models, long trajectories, scans and
+calibrations. `DOCS_RUN_TUTORIALS=true` cannot be combined with `DOCS_DRAFT=true`:
+draft mode skips examples, so the build rejects that combination. The default
+build remains inexpensive and includes only the small waveform tutorial plots.
+The earlier shortened archives remain unchanged in `docs/tutorials`.
+
+`docs:dev` watches `docs/src` and active tutorial Julia sources and regenerates Markdown in Documenter's draft mode
 before refreshing the browser. Julia formats the documentation, but examples and
 doctests do not execute; calculated outputs and plots are omitted. Save a source
 file and allow generation to finish before expecting the update. Stop with Ctrl+C.
@@ -57,10 +74,9 @@ executes examples unless you also set `DOCS_DRAFT=true`.
 ## Source organization
 
 Keep explicit overloads in `overloads.jl` beside the structures they extend.
-`src/time_evolution` owns solver-based evolution; generic fidelity metrics live
-in `src/utils/metrics/fidelities.jl`, and gate-specific metrics live in
-`src/gates/utils/metrics.jl`. Hamiltonians use frequency units; apply `2π` at
-solver calls rather than constructors or `numerical`.
+`src/gates/evolution` owns solver-based evolution, and gate calibration/metrics
+live in `src/gates/calibration`. Hamiltonians use frequency units; apply `2π` at
+direct solver calls using `make_hamiltonian(...; scalar=2pi)`; built-in `evolve` supplies it internally.
 
 ## Adding documentation
 

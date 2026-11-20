@@ -1,35 +1,86 @@
-"""
-    Component(name, parameters, operators, hamiltonian, type, dimension)
-    Component(component; operators=component.operators, hamiltonian=component.hamiltonian)
-
-A component with a string name, named scalar parameters, named local quantum
-operators, a symbolic Hamiltonian, a storage type tag, and a parent dimension.
-All operators must be square matrices of that dimension when used in a model.
-Use the built-in `make_*` constructors for basis consistency; this constructor
-also supports custom components. The copy form preserves physical basis metadata
-when extending operators in the same coordinate basis. Component names must be unique within a model.
-"""
+"""A symbolic component with matching string-keyed declaration maps."""
 struct Component
-    name::AbstractString
-    parameters::NamedTuple
-    operators::NamedTuple
-    hamiltonian
+    name::Symbol
+    variables::Dict{String,Num}
+    parameters::Dict{String,Number}
+    operators::OperatorDeclarations{Sym}
+    operator_generators::OperatorDeclarations{OperatorGenerator}
+    hamiltonian::Sym
     type::String
-    dimension
-    basis
+    label::Union{Nothing,String}
+    metadata::NamedTuple
+    function Component(name; variables, parameters, operators, operator_generators,
+        hamiltonian, type="custom", label=string(name), metadata=(;))
+        name isa Symbol || throw(ArgumentError("component name must be a Symbol"))
+        variables = named_component_map(variables, Num, "variables")
+        parameters = named_component_map(parameters, Number, "parameters")
+        operators = named_component_map(operators, Sym, "operators")
+        operator_generators = named_component_map(operator_generators, OperatorGenerator, "operator_generators")
+        Set(keys(variables)) == Set(keys(parameters)) ||
+            throw(ArgumentError("variables and parameters must have matching local keys"))
+        Set(keys(operators)) == Set(keys(operator_generators)) ||
+            throw(ArgumentError("operators and operator_generators must have matching local keys"))
+        all(generator -> applicable(generator.f, generator.default_dimension), values(operator_generators)) ||
+            throw(ArgumentError("operator generators must be callable with a dimension"))
+        all(is_parameter, values(variables)) || throw(ArgumentError("variables must be atomic Symbolics scalar variables"))
+        allunique(values(variables)) || throw(ArgumentError("duplicate component parameter symbols"))
+        all(concrete_parameter_value, values(parameters)) || throw(ArgumentError("parameter values must be finite concrete numbers"))
+        for (key, expression) in operators
+            expression.expr == (:op, OperatorRef(name, Symbol(key))) ||
+                throw(ArgumentError("operator $key must be the atomic operator owned by $name with that local name"))
+        end
+        hamiltonian isa Sym || throw(ArgumentError("hamiltonian must be a symbolic operator expression"))
+        declared = Set(expression.expr[2] for expression in values(operators))
+        issubset(refs(hamiltonian, :op), declared) || throw(ArgumentError("Hamiltonian contains undeclared or foreign operators"))
+        issubset(refs(hamiltonian, :param), Set(values(variables))) || throw(ArgumentError("Hamiltonian parameters must be declared in variables"))
+        return new(name, variables, parameters, OperatorDeclarations(operators), OperatorDeclarations(operator_generators),
+            hamiltonian, string(type), isnothing(label) ? nothing : string(label), metadata)
+    end
 end
 
-# Each built-in component registers its keyword constructor. Stored parameters
-# can then be splatted into it without depending on their serialized order.
-const COMPONENT_CONSTRUCTORS = Dict{String,Function}()
-
-# The map sends component coordinates into a declared common physical basis.
-struct _ComponentBasis
-    id
-    vectors
+"""Normalize local Symbol/string keys, rejecting aliases that collide after normalization."""
+function named_component_map(declarations, ::Type{T}, description) where T
+    result = Dict{String,T}()
+    for (key, value) in pairs(declarations)
+        key isa Union{Symbol,AbstractString} || throw(ArgumentError("$description keys must be strings or Symbols"))
+        local_name = string(key)
+        isempty(local_name) && throw(ArgumentError("$description keys must be nonempty"))
+        haskey(result, local_name) && throw(ArgumentError("duplicate $description key: $local_name"))
+        value isa T || throw(ArgumentError("invalid $description value for $local_name"))
+        result[local_name] = value
+    end
+    return result
 end
-Component(name,parameters,operators,hamiltonian,type,dimension;basis=nothing) =
-    Component(name,parameters,operators,hamiltonian,type,dimension,basis)
-Component(component::Component;operators=component.operators,hamiltonian=component.hamiltonian) =
-    Component(component.name,component.parameters,operators,hamiltonian,
-        component.type,component.dimension;basis=component.basis)
+
+"""Return symbolic operators and their factories as matching string-keyed maps."""
+function component_operators(name::Symbol, declarations=NamedTuple(); kwargs...)
+    generators = named_component_map(declarations, OperatorGenerator, "operator_generators")
+    for (key, generator) in named_component_map(kwargs, OperatorGenerator, "operator_generators")
+        haskey(generators, key) && throw(ArgumentError("duplicate operator_generators key: $key"))
+        generators[key] = generator
+    end
+    return Dict(key => op(name, Symbol(key)) for key in keys(generators)), generators
+end
+
+# Resolve public local names only at the boundary where physical symbols are needed.
+function component_parameter_values(c)
+    Set(keys(c.variables)) == Set(keys(c.parameters)) ||
+        throw(ArgumentError("component $(c.name) variables and parameters must have matching local keys"))
+    allunique(values(c.variables)) || throw(ArgumentError("duplicate component parameter symbols"))
+    result = Dict{Num,Number}(c.variables[key] => value for (key,value) in c.parameters)
+    validate_parameter_values(result)
+    return result
+end
+component_operator_generators(c) = Dict{OperatorRef,OperatorGenerator}(c.operators[key].expr[2] => generator for (key,generator) in c.operator_generators)
+
+# Positional declarations remain accepted for custom constructors written before
+# the named operator maps were introduced.
+function Component(name, variables, parameters, generators, hamiltonian, type, label, metadata)
+    vars = named_component_map(variables, Num, "variables")
+    defaults = all(key -> key isa Num, keys(parameters)) ?
+        Dict(key => parameters[value] for (key,value) in vars) : parameters
+    ops = Dict(string(ref.name) => op(ref.owner, ref.name) for ref in keys(generators))
+    gens = Dict(string(ref.name) => generator for (ref,generator) in generators)
+    return Component(name; variables=vars, parameters=defaults, operators=ops,
+        operator_generators=gens, hamiltonian, type, label, metadata)
+end

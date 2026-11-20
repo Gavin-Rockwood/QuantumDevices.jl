@@ -1,3 +1,5 @@
+> **Historical API:** this page describes a removed tomography interface and is retained for migration reference. It is not part of the current supported API. Use [calibration](../user_guide/calibration.md) for current gate fitting.
+
 # Model tomography
 
 First fit `EC`, `EJ`, the coupling `g`, and cavity frequency from spectroscopy.
@@ -9,8 +11,9 @@ This example is self-contained. Install OptimizationOptimJL in your application
 environment to run the fits. Start Julia with `--threads=4` to build distinct
 gate propagators in parallel; a single-thread session also works.
 
-```@example cavity_tomography
-using QuantumDevices, QuantumToolbox, OptimizationOptimJL, SciMLBase, CairoMakie
+```julia
+using QuantumDevices
+import Symbolics, QuantumToolbox, OptimizationOptimJL, SciMLBase, CairoMakie
 
 CairoMakie.activate!(type="svg")
 threaded = true; # Use a kernel started with --threads=4 for parallel gate builds.
@@ -31,11 +34,11 @@ unweighted fitting of synthetic values; zero does not impose an exact constraint
 The scalar fit uses the sum of squared residuals and does not evolve any gates.
 `real(...)` removes imaginary numerical roundoff from the Hermitian spectrum.
 
-```@example cavity_tomography
+```julia
 function cavity_transmon_model(EC, EJ, g, cavity_frequency)
     transmon = make_transmon("t", EC, EJ, 17)
     cavity = make_resonator("c", cavity_frequency, 3)
-    interaction = param(:g)*op(:t_charge)*(op(:c_a) + op(:c_adag))
+    interaction = (:g)*op(:t_charge)*(op(:c_a) + op(:c_adag))
     make_model([transmon, cavity], interaction, (; g);
         truncation_dimensions=Dict(transmon => 4))
 end
@@ -53,7 +56,7 @@ reference = cavity_transmon_model(0.2, 10.0, 0.08, 4.5)
 measured = predict(reference);
 ```
 
-```@example cavity_tomography
+```julia
 initial = cavity_transmon_model(0.21, 9.7, 0.07, 4.45)
 paths = ["components/1/EC", "components/1/EJ",
          "coupling_parameters/g", "components/2/frequency"]
@@ -81,11 +84,18 @@ The following controls are laboratory-frame microwave pulses on the transmon
 charge operator. The readout pulse phase follows the same oscillator clock
 through the wait and includes a quadrature offset to distinguish the shift sign.
 
-```@example cavity_tomography
+```julia
 transmon = baseline.components[1]
-transmon_with_N = Component(transmon;operators=merge(transmon.operators,(;N=num(transmon.dimension))))
+transmon_with_N = Component(transmon.name; variables=transmon.variables,
+    parameters=transmon.parameters,
+    operators=merge(transmon.operators,Dict("N"=>op(transmon.name,:N))),
+    operator_generators=merge(transmon.operator_generators,Dict("N"=>
+        OperatorGenerator((dimension;kwargs...)->num(dimension),
+            transmon.operator_generators["charge"].default_dimension))),
+    hamiltonian=transmon.hamiltonian, type=transmon.type,
+    label=transmon.label, metadata=transmon.metadata)
 shift_trial = make_model([transmon_with_N, baseline.components[2]],
-    baseline.interactions + param(:chi)*op(:t_N),
+    baseline.interactions + (:chi)*op(:t_N),
     merge(baseline.coupling_parameters, (; chi=0.005));
     truncation_dimensions=Dict(transmon_with_N => 4))
 
@@ -93,15 +103,15 @@ carrier = predict(baseline).ge
 pulse_time = 5.0
 idle_time = 4.0
 wait_counts = 0:6
-prepare_pulse = Pulse(Constant(); duration=pulse_time, amplitude=0.05,
+prepare_pulse = Pulse(Constant(; duration=pulse_time); duration=pulse_time, amplitude=0.05,
     carrier=SineCarrier(carrier; phase=pi/2))
-shift_trial.gates["prepare"] = DeviceGate((drive=prepare_pulse,), param(:drive)*op(:t_charge), pulse_time)
+shift_trial.gates["prepare"] = DeviceGate((drive=prepare_pulse,), (:drive)*op(:t_charge), pulse_time)
 shift_trial.gates["idle"] = DeviceGate((;), val(0), idle_time)
 for k in wait_counts
     start_time = pulse_time + k*idle_time
-    readout_pulse = Pulse(Constant(); duration=pulse_time, amplitude=0.05,
+    readout_pulse = Pulse(Constant(; duration=pulse_time); duration=pulse_time, amplitude=0.05,
         carrier=SineCarrier(carrier; phase=pi + 2pi*carrier*start_time))
-    shift_trial.gates["readout_$k"] = DeviceGate((drive=readout_pulse,), param(:drive)*op(:t_charge), pulse_time)
+    shift_trial.gates["readout_$k"] = DeviceGate((drive=readout_pulse,), (:drive)*op(:t_charge), pulse_time)
 end
 ```
 
@@ -116,7 +126,7 @@ distributions directly. The preparation function is evaluated against each
 candidate model. `Measurement(num(4); acts_on=[1])` orders outcomes as
 transmon levels 0, 1, 2, 3, so index 2 below is the level-1 probability.
 
-```@example cavity_tomography
+```julia
 true_chi = 0.015  # Synthetic post-flip shift: 15 MHz.
 shift_target = setpath(shift_trial, "coupling_parameters/chi", true_chi)
 preparation = m -> m.states[(0, 0)]
@@ -144,7 +154,7 @@ println("Fitted shift: ", round(1000*physical_parameters(shift_problem, shift_so
 The plot shows level-1 population. The fit uses the complete distributions;
 it does not condition on remaining within the first two transmon levels.
 
-```@example cavity_tomography
+```julia
 before_fit = predict_sequences(shift_trial, sequences; preparation, measurement, threaded)
 after_fit = predict_sequences(fitted, sequences; preparation, measurement, threaded,gates=shift_trial.gates)
 wait_times = idle_time .* collect(wait_counts)

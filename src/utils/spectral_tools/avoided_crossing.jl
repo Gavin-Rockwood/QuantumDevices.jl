@@ -1,29 +1,3 @@
-"""
-    AvoidedCrossingFit
-
-Fit of `sqrt(minimum_gap^2 + slope^2*(parameter-center)^2)`. Fields `center`,
-`minimum_gap`, and `slope` use the original data units. `parameters` and `gaps`
-are sorted samples; `fitted_gaps`, `residuals` (fit minus data), and `rms_residual`
-describe fit quality. `fit` is the native LsqFit result in normalized coordinates:
-`x=(parameter-x_offset)/x_scale`, `y=gap/gap_scale`. These three normalization
-fields allow interpretation of its parameters and Jacobian. Residuals are
-diagnostics, not a guarantee that an isolated two-state model is appropriate.
-"""
-struct AvoidedCrossingFit{F}
-    center::Float64
-    minimum_gap::Float64
-    slope::Float64
-    parameters::Vector{Float64}
-    gaps::Vector{Float64}
-    fitted_gaps::Vector{Float64}
-    residuals::Vector{Float64}
-    rms_residual::Float64
-    fit::F
-    x_offset::Float64
-    x_scale::Float64
-    gap_scale::Float64
-end
-
 function _spectral_parameters(parameters)
     parameters isa AbstractVector{<:Real} ||
         throw(ArgumentError("Parameters must be a real-valued vector"))
@@ -84,11 +58,6 @@ function fit_avoided_crossing(parameters, gaps; fit_kwargs=(;))
     residuals = fitted .- y
     rms = norm(residuals) / sqrt(length(y))
     return AvoidedCrossingFit(center, gap, fitted_slope, x, y, fitted, residuals,
-        rms, fit, offset, scale, ymax)
-end
-
-function Base.show(io::IO, ::MIME"text/plain", result::AvoidedCrossingFit)
-    print(io, "AvoidedCrossingFit\n  Center: ", result.center,
-        "\n  Minimum gap: ", result.minimum_gap, "\n  Slope: ", result.slope,
-        "\n  RMS residual: ", result.rms_residual)
+        rms, (;x_offset=offset,x_scale=scale,gap_scale=ymax), copy(fit.param),
+        (;converged=fit.converged,rank=rank(fit.jacobian),jacobian_singular_values=svdvals(fit.jacobian)))
 end

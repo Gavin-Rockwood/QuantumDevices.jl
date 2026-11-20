@@ -1,41 +1,106 @@
 # Symbolic Hamiltonians
 
-Use `op` for named operators, `param` for scalar parameters, and `val` for numeric
-constants. Addition, ordered multiplication, powers, and supported scalar functions
-form expressions. `call(f, args...)` can express a scalar coefficient explicitly.
+Scalar coefficients are ordinary Symbolics.jl variables and expressions. Quantum
+operators are owner-aware `Sym` expressions, whose products preserve order.
 
 ```@example symbolics
-using QuantumDevices, QuantumToolbox
-expression = param(:a) * op(:x) + param(:b) * op(:z)
-operators = (; x=sigmax(), z=sigmaz())
-H = numerical(expression, operators, (; a=0.2, b=0.5))
-@assert H ≈ 0.2 * sigmax() + 0.5 * sigmaz()
+using QuantumDevices
+import Symbolics
+import QuantumToolbox as QT
+variables, idle = component_parameters(:q; EC=0.25, EJ=18.0)
+EC, EJ = variables["EC"], variables["EJ"]
+n, J = op(:q, :charge), op(:q, :jump)
+expression = 4EC*n^2 - EJ*J/2
+operators = Dict(OperatorRef(:q,:charge)=>QT.num(3)-1,
+                 OperatorRef(:q,:jump)=>QT.destroy(3)+QT.destroy(3)')
+defaults = Dict(variables[alias]=>value for (alias,value) in idle)
+H = evaluate(expression, defaults, operators)
+@assert H ≈ 4*0.25*operators[OperatorRef(:q,:charge)]^2 -
+    18*operators[OperatorRef(:q,:jump)]/2
 size(H)
 ```
 
-Supplying all scalar parameters produces a static result. Missing parameters or
-function-valued parameters produce a `QobjEvo`. Dynamic scalar functions receive
-physical time as their single argument.
+Use scalar functions directly: `sqrt(EC)`, `cospi(flux)`, and products of scalar
+variables require no wrapper. `val(number)` explicitly inserts a scalar leaf when
+needed. Scalar arithmetic is delegated to Symbolics; it never turns operator
+references into commuting scalar variables. In particular, `a*b` and `b*a`, and
+`(a*b)'` with its reversed adjoint order, retain their quantum meanings. Scalar
+functions of quantum operators are outside this sum/product compiler.
 
-```@example symbolics
-dynamic = numerical(expression, operators, (; b=0.5))
-@assert dynamic((; a=0.2), 0.0) ≈ H
-timed = numerical(expression, operators, (; a=t -> 0.2cos(t), b=0.5))
-@assert timed(0.0) ≈ H
-size(timed(0.0))
+## Names, aliases, and idle values
+
+`q.variables["EC"]` is an actual Symbolics variable. `q.parameters["EC"]`
+is its numerical idle value. The string-keyed alias map is explicit; the implementation does
+not infer local aliases from symbolic name strings. `component_parameters(name;
+EC=.25, EJ=18.)` returns this pair of containers for custom components.
+
+By default, variable names use the local alias followed by an underscore and
+component name, for example `EC_q1` and `flux_coupler`. The helper and all builtin
+component constructors accept `subscript`: `missing` uses the component name,
+`nothing` produces names such as `EC`, and a nonempty Symbol or string supplies
+an explicit suffix, for example `subscript=:left` produces `EC_left`. This is
+independent of the component's display `label`.
+
+Unsuffixed variables and shared explicit suffixes deliberately share symbolic
+identities. Underscores can also make different alias/suffix pairs produce the
+same name; choose different suffixes when sharing is not intended. Shared names
+must have consistent idle defaults. Registration does not infer ownership from
+name strings or reject deliberate sharing.
+Identical component names and aliases recreate equal symbolic variables; distinct
+components must have distinct names, and duplicate device component names are
+rejected. Symbolics name equality, rather than object identity or metadata,
+defines parameter identity. For intentionally shared external variables, construct
+matching string-keyed variable and idle-value maps explicitly. Their names remain unchanged.
+All idle values and overrides must be finite concrete numbers, and declaration
+keys must be atomic scalar variables, rather than composite expressions.
+
+## Interactions
+
+```julia
+g = Symbolics.variable(:shared_coupling)
+interaction = Interaction(:exchange, g*a*b, Dict(g=>0.02))
 ```
 
-At the low-level expression interface, unresolved parameters can be supplied when
-calling the evolution object. Models require static idle parameters; gates require
-all referenced parameters and use pulse objects for controls.
+An interaction discovers every scalar variable used by its expression in
+`interaction.variables`, keyed by full symbolic name. Its `parameters` map stores
+only explicitly declared defaults under those same names. You may omit defaults
+when components, device declarations, or build overrides will supply them.
+Both `Dict(g=>0.02)` and `Dict("shared_coupling"=>(g,0.02))` declare the same
+default; a string key must equal the variable's full symbolic name. Duplicate or
+absent-expression defaults are rejected. Variables are never renamed.
 
-## Names and products
+Declare shared physical defaults once:
 
-A local component Hamiltonian uses names such as `op(:charge)` and `param(:EC)`.
-The model promotes these to `op(:t_charge)` and `param(:t_EC)` for component `"t"`.
-Interactions must use these promoted names. Coupling parameters retain their names.
+```julia
+add_parameters!(device, Dict(g=>0.02))
+interaction = Interaction(:exchange, g*a*b)
+```
 
-Operator words preserve order. General operator-valued function calls do not form
-part of the sum/product compiler. Arbitrary scalar callables may evaluate but
-cannot necessarily be saved: symbolic persistence uses an operation allowlist.
-See the [symbolic API](../reference/symbolics.md).
+`device.parameters` assembles a fresh symbolic-variable-to-value view. Use
+`add_parameters!` to add declarations; editing that temporary view does not update
+the device. Equal declarations are allowed, while conflicting defaults report
+both values and sources. Conflicts are checked before recipe/build overrides or
+controls, so those assignments cannot conceal inconsistent defaults. Missing
+defaults are deferred until build and report required variables and use sites.
+
+## Fixed-basis runtime values
+
+`make_hamiltonian(model)` returns a static QuantumToolbox `QuantumObject`.
+`make_hamiltonian(model, [flux])` returns a `QobjEvo` that reads `p[flux](t)`.
+With `auto_time_dependence=false`, it reads `p[flux]` instead. Every other scalar
+keeps its resolved build value. Runtime dictionaries use symbolic variables as
+keys, including when multiple components have the same local alias. Numerical
+conversion compiles scalar coefficients once, while keeping the model basis and
+complete projected operator products fixed. Rebuild a recipe to recompute its
+basis at another physical operating point.
+
+`latex(expression; labels=Dict(...))` composes scalar mathematics with quantum
+operator products. Symbolics owns its scalar display; this package does not
+override global printing of Symbolics variables. Display labels never change
+variable identity or supply idle values.
+
+Recipe snapshots and captured calibration contexts preserve maps, aliases, and
+symbolic name equality independently of later dictionary edits. Arbitrary callable
+captured external state remains outside that boundary. Raw Symbolics structures
+roundtrip with the installed JLD2/Symbolics versions; cross-version serialization
+compatibility is not guaranteed. Complete device folders instead use explicit scalar AST records and registered operation IDs; unsupported metadata or operations require an explicit codec. Legacy standalone pulse persistence is unchanged.

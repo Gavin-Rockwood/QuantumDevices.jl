@@ -1,8 +1,12 @@
 """
-    Cosine()
+    Cosine(;duration)
 
-Single unit-peak cosine lobe centered on half the pulse duration:
-`cospi((t-duration/2)/duration)`, equivalently `sinpi(t/duration)`.
-Endpoints are exactly zero. This is not the squared lobe of `SineSquared`.
+Single sine lobe on the normalized window.
+Returns an Envelope with a physical reference duration and normalized shape payload.
 """
-struct Cosine <: AbstractEnvelope end
+struct Cosine
+    Cosine(::Val{:raw})=new()
+end
+function Cosine(;duration=nothing,rise=nothing,fall=nothing)
+    return _wrap_shape(Cosine(Val(:raw)),duration,rise,fall)
+end

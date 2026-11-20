@@ -26,11 +26,11 @@ Use one project environment consistently when running scripts and notebooks.
 
 ## The workflow
 
-1. Construct a **Component** with local operators, physical parameters, and a symbolic Hamiltonian.
-2. Build a **DeviceModel** with components, their interaction, and retained dimensions.
-3. Construct a **DeviceGate** with control parameters, an additional Hamiltonian, and duration.
-4. Evaluate the gate Hamiltonian with `numerical(model, gate)` and use QuantumToolbox for evolution.
-5. Calibrate selected scalar parameters or save the model and its named gates.
+1. Construct components and register them with a `QuantumDevice`.
+2. Define a `Recipe` and build its numerical model.
+3. Define a `GateRecipe` with controls and optional interaction terms.
+4. Build the gate or compile it against a compatible cached model, then evolve it.
+5. Calibrate selected control parameters when needed.
 
 All public names live in `QuantumDevices`. Import QuantumToolbox explicitly for
 operators, initial states, and solvers. No Circuits or Dynamics submodule is needed.
@@ -39,10 +39,9 @@ operators, initial states, and solvers. No Circuits or Dynamics submodule is nee
 
 Hamiltonians and energy parameters use frequency units, `E/h`, in **cycles per
 time** (GHz for time in ns). Pass frequency values directly to constructors.
-`numerical` preserves them; `get_unitary` explicitly multiplies by `2π` during
-evolution. Direct QuantumToolbox `sesolve` and `mesolve` calls must use `2π * H`.
-`SineCarrier` takes frequency in cycles per time;
-their sine arguments include `2π` and their phase is in radians. See [conventions](../explanations/conventions.md).
+`make_hamiltonian` preserves them by default; built-in `evolve` supplies the `2π`
+conversion. For direct QuantumToolbox evolution, use `make_hamiltonian(...; scalar=2pi)`.
+Carrier frequencies use cycles per time and phases use radians. See [conventions](../explanations/conventions.md).
 
 Tensor order follows component order. Dressed-state labels are tuples of
 zero-based local **energy levels**, while Julia array indices are one-based.

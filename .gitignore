@@ -1,5 +1,6 @@
 */Manifest.toml
 dev/
+/plan/
 Manifest.toml
 .agent
 versions.js
@@ -8,3 +9,4 @@ versions.js
 docs/build/
 docs/node_modules/
 docs/docs/node_modules/
+AGENTS.md

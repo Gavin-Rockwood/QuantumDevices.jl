@@ -1,18 +1,17 @@
 # Pulses, gates, and calibration
 
-## Timed controls
+## Timed controls and envelopes
 
 ```@docs
 AbstractPulse
 Pulse
+PulseSequence
 pulse_tstops
-DeviceGate
-```
-
-## Envelopes and ramps
-
-```@docs
 AbstractEnvelope
+Envelope
+EnvelopeSequence
+Segment
+InterpolatedEnvelope
 Constant
 Gaussian
 GaussianZero
@@ -26,48 +25,38 @@ Slepian
 DRAG
 SineSquared
 RampedFlattop
-Envelope
-envelope_value
-validate_envelope
+QuantumDevices.envelope_value
+QuantumDevices.validate_envelope
 envelope_tstops
 ```
 
-## Carriers
+## Gate preparation and evolution
 
 ```@docs
-AbstractCarrier
-SineCarrier
-IQCarrier
-Carrier
-carrier_value
-```
-
-## Evolution and metrics
-
-```@docs
-get_unitary
-QuantumDevices.sesolve(::DeviceModel, ::DeviceGate, ::Union{QuantumDevices.QuantumObject,AbstractVector{<:QuantumDevices.QuantumObject}}, ::AbstractVector)
-get_gate_matrix
-state_amplitudes
-plot_trajectories
-plot_trajectories!
-gate_unitary
-unitary_fidelity
-unitary_infidelity
-gate_infidelity
+Control
+GateRecipe
+PreparedGate
+check_endpoints
+GateEvolution
+evolve
+unitary
+idle_phases
+gate_matrix
 ```
 
 ## Calibration
 
 ```@docs
-parameters
-calibration_values
-AbstractCalibrationSetup
+calibration_parameters
 CalibrationProblem
-SciMLCalibrationSetup
-calibration_problem
-calibrated_gate
-calibrate
+CalibrationResult
+calibrated_recipe
+validate_calibration
+QuantumGate
+gate_infidelity
+solve
 ```
 
-`solve(problem, algorithm; kwargs...)` forwards directly to SciML's solver.
+`solve(problem; kwargs...)` uses the default bound-aware NLopt Nelder–Mead backend.
+`solve(problem, algorithm; kwargs...)` selects a native SciML optimizer and
+returns CalibrationResult; solving `problem.problem` returns the native solution.

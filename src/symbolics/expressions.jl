@@ -1,57 +1,25 @@
-# ============================================================
-# Symbolic expression
-# ============================================================
-
-"""
-    Sym(expr)
-
-Symbolic operator/scalar expression used to construct Hamiltonians. Prefer
-[`op`](@ref), [`param`](@ref), [`val`](@ref), and [`call`](@ref) to constructing
-its internal tuple representation directly. Arithmetic, integer powers, `sin`,
-`cos`, `exp`, and `sqrt` compose expressions without evaluating them.
-Operator multiplication preserves order; names are resolved by [`numerical`](@ref).
-"""
-struct Sym
-    expr
+"""An operator identity given by component owner and local operator name."""
+struct OperatorRef
+    owner::Symbol
+    name::Symbol
 end
 
-"""
-    op(name::Symbol)
+"""An operator supplied by one input in a particular consuming recipe scope."""
+struct BoundOperatorRef
+    scope::Symbol
+    input::Symbol
+    physical::OperatorRef
+end
 
-Return a symbolic operator reference. Component-local names are such as `:charge`;
-model names are prefixed, such as `:t_charge`. Referenced names must exist in the
-operator container supplied to [`numerical`](@ref).
 
-```jldoctest
-julia> op(:x) isa Sym
-true
-```
-"""
-op(name::Symbol) = Sym((:op, name))
-"""
-    param(name::Symbol)
+"""An owner-aware symbolic arithmetic tree for Hamiltonians."""
+struct Sym
+    expr::Tuple
+end
 
-Return a symbolic scalar parameter reference. Model component parameters use
-`componentname_localname`; coupling and gate parameters use their supplied names.
-Missing parameters in low-level [`numerical`](@ref) remain dynamic; model and gate
-construction reject unresolved required values.
-"""
-param(name::Symbol) = Sym((:param, name))
-"""
-    val(x::Number)
-
-Wrap a numeric constant in a [`Sym`](@ref). Constants are independent of parameter
-containers and time. Useful for a zero interaction: `val(0)`.
-"""
-val(x::Number) = Sym((:val, x))
-_symbolic_argument(x) = x
-_symbolic_argument(x::Number) = val(x)
-"""
-    call(f, args...)
-
-Construct a symbolic function application. Numeric arguments are wrapped as
-[`val`](@ref). Operator-valued expressions must fit the supported sum/product
-compiler; general functions are intended for scalar coefficients. Persistence
-supports only its explicit built-in operation allowlist, not arbitrary functions.
-"""
-call(f, args...) = Sym((:call, f, map(_symbolic_argument, args)...))
+"""Reference a local operator belonging to `owner`."""
+op(owner::Symbol, name::Symbol) = Sym((:op, OperatorRef(owner, name)))
+"""Insert a numerical constant into a symbolic expression."""
+val(n::Number) = Sym((:val, n))
+asym(s::Sym) = s
+asym(n::Number) = val(n)

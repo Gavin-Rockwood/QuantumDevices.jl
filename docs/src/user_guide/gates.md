@@ -1,154 +1,100 @@
 # Gates and evolution
 
-A `DeviceGate` contains parameters and an additional Hamiltonian. Its duration
-is inferred from the latest pulse end unless supplied explicitly.
-Parameters must be finite numbers or pulses; raw functions are rejected. Use
-`Pulse(Envelope(f, parameters); duration)` for custom `f(p, t, duration)` envelopes.
+A pulse describes a coefficient; a `GateRecipe` says which physical variable it
+controls and which extra Hamiltonian terms it drives. Build the recipe against a
+device, evolve it, then project onto the states relevant to your gate.
+
+## A complete X rotation
+
+Start with a zero-idle qubit so that the control alone determines the motion.
+With Hamiltonians in cycles per unit time, a constant `0.25 X` applied for one
+time unit produces `exp(-i π X/2) = -i X`. The global phase does not affect gate loss.
 
 ```@example gates
-using QuantumDevices, QuantumToolbox, SciMLBase, LinearAlgebra
-q = make_qubit("q", 0.0)
-model = make_model([q], val(0), (;))
-gate = DeviceGate((; drive=Pulse(Constant(); amplitude=0.25, duration=1.0)),
-                  param(:drive) * op(:q_x))
-U = get_unitary(model, gate; abstol=1e-9, reltol=1e-9)
-@assert unitary_infidelity(-im * sigmax(), U) < 1e-7
-unitary_infidelity(-im * sigmax(), U)
+using QuantumDevices, QuantumToolbox, CairoMakie
+import Symbolics
+device = QuantumDevice(:rotation)
+q = add_component!(device,make_qubit(:q;frequency=0.0))
+recipe = Recipe(device,[q])
+A = Symbolics.variable(:drive_amplitude)
+drive = Interaction(:drive,A*recipe.inputs.q.operators.x;parameters=Dict(A=>0.))
+pulse = Pulse(Constant(;duration=1.);amplitude=.25)
+definition = GateRecipe(recipe;terms=[drive],controls=[Control(:drive,A,pulse)])
+prepared = build(device,definition)
+result = evolve(prepared;saveat=range(0,1;length=41),abstol=1e-9,reltol=1e-9)
+U = unitary(result)
+target = ComplexF64[0 1;1 0]
+@assert gate_infidelity(target,U) < 1e-7
+gate_infidelity(target,U)
 ```
 
-The ideal zero-idle example isolates an X rotation. In a nonzero idle model, lab
-frame detuning and drift remain present unless explicitly modeled or compensated.
-There is no automatic rotating frame or rotating-wave approximation.
+`evolve` supplies `2π` and merges pulse boundaries with solver stops. In a model
+with nonzero idle Hamiltonian its drift remains present; there is no automatic
+rotating frame or rotating-wave approximation. Saving on a dense grid requests
+output samples; integration boundaries are supplied separately by `pulse_tstops`.
 
-For state evolution, use the same Hamiltonian with QuantumToolbox:
+## Plot populations from the saved propagators
 
-```@example gates
-result = sesolve(model, gate, basis(2, 0), range(0, 1; length=21); dense=true, progress_bar=false)
-@assert SciMLBase.successful_retcode(result.retcode)
-@assert abs2(dot(basis(2, 1), result.states[end])) > 0.999
-length(result.states)
-```
-
-`numerical(...; scalar=2pi)` folds the frequency-to-angular-frequency conversion
-into the operator matrices before building `QobjEvo`, avoiding lazy outer scaling.
-Use `numerical(model, gate; scalar=2pi, dense=true)` to materialize every static
-and time-dependent term's matrix as a dense `Matrix` before constructing the
-Hamiltonian. Conversion happens once; coefficient callbacks only evaluate the
-signals. The device-aware solver accepts the same option:
-`sesolve(model, gate, initial, times; dense=true)`.
-The default `dense=false` preserves the usual matrix storage.
-
-The default `scalar=1` preserves frequency units. The device-aware
-`sesolve(model, gate, initial, times)` handles this conversion, pulse stops, and
-automatic energy centering. Returned states have their original lab-frame phase.
-
-For delayed controls, `tstops=pulse_tstops(gate)` forces the adaptive solver to
-resolve pulse boundaries and flattop transitions. Saving states on a dense time
-grid alone does not force integration steps there. `get_unitary(model, gate)`
-supplies these stops automatically. If supplying additional solver stop times,
-combine them with `pulse_tstops(gate)`.
-
-## Plot state trajectories
-
-`state_amplitudes` computes complex overlaps with a dictionary of fixed reference
-states. It accepts either a history of kets (or numerical vectors) or a
-QuantumToolbox time-evolution solution. It preserves normalization and phase;
-convert the amplitudes explicitly to populations with `abs2`.
+For a full propagator, choose input and output kets when projecting. Each column
+is the evolved input; rows correspond to your chosen output basis.
 
 ```@example gates
-using CairoMakie
-references = Dict("Ground" => basis(2, 0), "Excited" => basis(2, 1))
-amplitudes = state_amplitudes(references, result)
-populations = Dict(key => abs2.(values) for (key, values) in amplitudes)
-styles = Dict(
-    "Ground" => (; color=:gray, linestyle=:dash),
-    "Excited" => (; color=:purple, linewidth=2.5),
-)
-fig, ax = plot_trajectories(populations, result.times_states, styles;
-    figure=(; size=(650, 350)),
-    axis=(; xlabel="Time (ns)", ylabel="Population"),
-    legend_options=(; position=:rt))
-ylims!(ax, 0, 1.05)
+basis_states = [basis(2,0),basis(2,1)]
+matrices = [gate_matrix(result;states=basis_states,step=i).data for i in eachindex(result.times)]
+ground = [abs2(M[1,1]) for M in matrices]
+excited = [abs2(M[2,1]) for M in matrices]
+fig = Figure(size=(700,320))
+ax = Axis(fig[1,1];xlabel="Time",ylabel="Population",title="A constant-drive X rotation")
+lines!(ax,result.times,ground;label="Initial state",color=:gray,linestyle=:dash)
+lines!(ax,result.times,excited;label="Target state",color=:purple)
+axislegend(ax; position=:lt)
+ylims!(ax,0,1.05)
 fig
 ```
 
-Use `result.times_states` for amplitudes: `result.times` can instead be the grid
-used to sample expectation values. The value and style dictionaries must have
-exactly matching keys, and every series must have the same length as the x vector.
-Style entries accept ordinary Makie line options, as NamedTuples or Symbol-keyed
-dictionaries; labels default to the dictionary keys converted to strings.
+The plot answers a population question for one input. A coherent gate also has
+to act correctly on superpositions, which constrains relative phases. The default
+`gate_infidelity(target,M)` includes leakage and those relative phases, while
+ignoring a common global phase. See [conventions](../explanations/conventions.md).
 
-For a multi-panel figure, construct your axes and add curves to each one:
+## Evolve selected inputs
+
+For a larger device, integrate only the columns needed for your target instead
+of the full identity. This saves work without replacing the full Hamiltonian by
+a smaller projected one.
 
 ```@example gates
-panels = Figure(size=(650, 600))
-for (row, key) in enumerate(keys(populations))
-    panel = Axis(panels[row, 1]; xlabel="Time (ns)", ylabel="Population", title=key)
-    plot_trajectories!(panel, Dict(key => populations[key]), result.times_states,
-        Dict(key => styles[key]); legend=false)
-end
-panels
+columns = evolve(prepared;states=basis_states,abstol=1e-9,reltol=1e-9)
+M = gate_matrix(columns)
+@assert gate_infidelity(target,M) < 1e-7
+leakage = 1 .- vec(sum(abs2,M.data;dims=1))
+(M.data,leakage)
 ```
 
-The helpers also plot other real-valued trajectories, such as energies or pulse
-coefficients. Precompute `real.(values)` or `imag.(values)` to plot amplitude
-components. Reference states need not form a complete orthonormal basis, so their
-squared overlaps need not sum to one.
+A selected-column result has no `unitary(result)`; it contains only its recorded
+inputs. `gate_matrix` defaults to those same outputs, or accepts a distinct
+`output_states` basis. Projected columns are never renormalized: lost norm is the
+probability outside the output subspace. Ordered occupation labels can replace
+kets for a model with tracked physical labels.
 
-## Overrides and endpoint checks
+## Delays, offsets and endpoints
 
-Gate parameters override matching model parameters. A parameter that changes an
-idle coefficient must equal the idle value **exactly** at both endpoints; this is
-an equality check, not a tolerance-based continuity test. An additional drive
-parameter absent from the idle model has no idle-matching restriction.
+Controls replace a variable's full value, including its baseline. For a flux
+excursion choose the idle offset explicitly. An additional charge-drive variable
+can instead have a zero idle default supplied by its extra Interaction.
 
-Explicit gate duration must be finite, nonnegative, and contain every pulse;
-`get_unitary` requires positive duration. Inferred timing is recomputed after
-updates to pulse delay or duration. Scalar-only gates require explicit duration.
-A zero additional Hamiltonian represents a gate that changes idle coefficients
-only. `numerical` returns a static quantum operator when all coefficients are
-static, and a `QobjEvo` when time dependence is present.
+Gate duration defaults to the latest delayed control endpoint. An explicit
+duration can include trailing idle time, but cannot cut a pulse short. Without
+controls supply a duration. `check_endpoints(prepared;atol=...,rtol=...)` checks
+matching with the captured reference explicitly; no smoothing or equality
+constraint is imposed silently.
 
-Named gates are stored in `model.gates[:name]`. A gate object is immutable;
-use [parameter paths](parameters.md) to construct updated versions.
+`make_hamiltonian(prepared)` returns the frequency-unit Hamiltonian. For direct
+QuantumToolbox solver calls use `make_hamiltonian(prepared;scalar=2pi)` and include
+pulse stops yourself. Built-in `evolve` already does both. `idle_phases(result)`
+reports unwrapped reference idle phases without applying compensation.
 
-## Evolving several input states
-
-Pass an ordered vector of kets to evolve their columns together. Automatic
-energy centering subtracts the mean initial-state energy during integration,
-then restores global phase at every saved time. Set `energy_shift=0` to disable
-it. Native
-QuantumToolbox calls retain angular-frequency units:
-
-```julia
-states = [model.states[(0, 0)], model.states[(1, 0)]]
-solution = sesolve(numerical(model, gate; scalar=2pi), states, [0.0, gate.duration];
-    progress_bar=false, tstops=pulse_tstops(gate))
-M = get_gate_matrix(solution, states)
-```
-
-The evolved object is rectangular, with one column per input state. Projection
-returns a small matrix in the chosen output basis. The three-argument `numerical` form supplies
-`2π` and pulse event times internally:
-
-```julia
-M = numerical(model, gate, states; abstol=1e-8, reltol=1e-8)
-fidelity = unitary_fidelity(sigmax(), M) # Includes relative phases by default.
-probability_score = unitary_fidelity(sigmax(), M; include_phases=false)
-leakage = 1 - sum(abs2, M.data) / length(states)
-```
-
-The two-argument `numerical(model, gate)` returns the Hamiltonian in frequency
-units. Adding `states` returns a dimensionless `QuantumObject` operator after
-full-model evolution and projection, retaining leakage. Its dimensions match the
-selected basis; use `.data` to access the matrix entries.
-
-Use `output_states` to choose another ordered orthonormal basis. Select
-`frame=:interaction` explicitly to remove idle evolution before comparison.
-`state_amplitudes` remains the helper for individual-ket trajectories.
-
-Centering offsets use frequency units for device-aware evolution, gate matrices,
-and calibration; the native-Hamiltonian batched `sesolve(H, states, times)`
-overload uses angular-frequency units. `sesolveProblem` remains a native,
-uncentered problem constructor. User integrator callbacks observe the centered
-state; disable centering if a callback needs the original global phase.
+Continue with [gate recipes](gate_recipes.md) for physical flux/microwave terms,
+[calibration](calibration.md) for fitting controls, or the full
+[transmon–resonator](../tutorials/transmon_resonator_control.md) and
+[tunable-coupler](../tutorials/tunable_coupler_control.md) tutorials.

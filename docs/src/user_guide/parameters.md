@@ -1,58 +1,71 @@
-# Parameter discovery and updates
+# Parameter values and pulse updates
 
-`parameters(gate)` returns `name => (path, value)`. Gate scalars retain their names;
-pulse parameters use names such as `"drive/amplitude"`, `"drive/carrier/frequency"`,
-and `"drive/envelope/sigma"`, including nested ramp and custom shape parameters. `calibration_values` is an
-alias; neither function filters the discovery map to optimizable numbers.
+Physical scalar parameters are actual Symbolics.jl variables. A component exposes
+local aliases through `q.variables`, while `q.parameters` stores numerical idle
+values. For example, `q.variables["EC"]` is a symbolic variable and
+`q.parameters["EC"]` is its idle charging energy. Composite scalar
+expressions can appear in Hamiltonian coefficients. Component declaration maps
+use local string keys; physical-default and override maps use atomic variables.
+Values must be finite concrete numbers.
+
+```julia
+recipe = Recipe(device,[q]; parameters=Dict(q.variables["EC"]=>0.26))
+model = build(device,recipe; parameters=Dict(q.variables["EC"]=>0.27))
+@assert model.parameters[q.variables["EC"]] == 0.27
+```
+
+Build overrides take precedence over downstream recipe overrides, which take
+precedence over upstream recipes and idle defaults. Shared variables must have
+consistent declared idle values and resolved upstream values. Overrides never
+alter the component's idle dictionary. The default component suffix keeps identical local aliases distinct. Explicit
+shared suffixes or `subscript=nothing` can intentionally share variables.
+
+`make_hamiltonian(model,[q.variables["EC"]])` reads runtime `p[q.variables["EC"]](t)`, or
+`p[q.variables["EC"]]` with `auto_time_dependence=false`. Controls likewise target the
+variable directly: `Control(:flux,q.variables["flux"],pulse)`. Control pulses replace
+the complete value, including their explicitly chosen baseline offset.
+
+## Editing saved recipes
+
+Register a recipe with `add_recipe!` to capture its inputs, parameter overrides,
+and local interactions. `draft(saved)` returns an independent editable tree:
+
+```julia
+trial = draft(saved)
+trial.parameters[q.variables["EC"]] = 0.28
+candidate = build(device,trial)
+```
+
+Snapshots and physical calibration contexts preserve aliases, parameter maps, and
+symbolic name equality independently of later edits. Arbitrary callable captured
+external state remains outside that snapshot boundary.
+
+## Pulse paths
+
+`parameters(pulse)` discovers structural pulse values using paths such as
+`"amplitude"`, `"carrier/frequency"`, and `"envelope/sigma"`. Gate controls prefix
+them with their control names, for example `"drive/amplitude"`.
 
 ```@example parameters
 using QuantumDevices
-pulse = Pulse(Gaussian(0.1); amplitude=0.2, duration=1.0)
-gate = DeviceGate((; drive=pulse), param(:drive) * op(:q_x), 1.0)
-path, original = parameters(gate)["drive/amplitude"]
-updated = setpath(gate, path, 0.4)
-@assert getpath(updated, path) == 0.4
-@assert getpath(gate, path) == original
-@assert haspath(gate, "drive/envelope/sigma")
-(path, original)
+pulse = Pulse(Gaussian(; duration=1.0, sigma=0.1); amplitude=0.2)
+updated = setpath(pulse,"amplitude",0.4)
+@assert getpath(updated,"amplitude") == 0.4
+@assert pulse.amplitude == 0.2
+parameters(updated)
 ```
 
-Paths use `/` separators, not Julia expressions. They traverse fields, named tuples,
-dictionaries, arrays, and tuples. Indices are one-based. A parameter lookup can omit
-`parameters/` unless a structure field shadows it; explicit paths always resolve
-that ambiguity. A dictionary containing both `:a` and `"a"` is ambiguous for `"a"`.
+Paths use `/` separators and one-based indices. `setpath` copies the edited path
+and rebuilds immutable structures; unchanged branches may remain shared. Use
+`calibration_parameters` for selectable finite real optimization values. Physical
+Symbolics parameter maps are separate from this structural pulse-path interface.
 
-`setpath` copies the edited path and rebuilds immutable structs; it is not a deep
-copy of every unchanged branch. `setpath!` requires a mutable root. A model or gate
-root is immutable, although `model.gates` is a mutable dictionary.
-
-## Physical reconstruction
-
-Reconstruction follows the changed inputs:
-
-| Update | Recomputed | Reused |
-|---|---|---|
-| Gate parameters | Updated gate and its propagator when evolved | Idle Hamiltonian, component bases, dressed states |
-| Interaction strengths | Normal model assembly and dressed-state tracking | Existing components |
-| Interaction expression | Normal model assembly and dressed-state tracking | Existing components |
-| Component physics, such as transmon `EC` or `EJ` | Affected component basis/operators, normal model assembly and dressed-state tracking | Unchanged component objects |
-| Dimensions, truncations, or dimension limit | Complete model reconstruction | Existing component objects when applicable |
-
-A transmon physical update reconstructs its parent charge-basis eigensystem and
-transforms its operators before projection to the retained space. Products such
-as `charge^2` are recomputed in the parent space before projection. The normal builder prepares the complete model from these components.
-
-Derived properties cannot be replaced directly. Component names and order must
-survive a model component update. Supported updates do not change the original
-model; unchanged component objects can be shared. Use these
-updates rather than mutating cached matrices or physical input containers.
-
-There is no incremental reconstruction cache. Physical rebuilding uses `make_model`
-and does not copy gates. Tomography can match against a fixed initial eigenbasis
-with `reference_model=:initial, tracking_steps=0`. Zero means no intermediate
-models, not frozen states: the candidate Hamiltonian is diagonalized once.
-Pass gate definitions explicitly to sequence tomography. The bundle schema is
-unchanged; built-in constructors regenerate physical basis metadata when loaded.
-
-Custom pulse types can expose selectable values through `parameters(pulse)`;
-see the [extension guide](../development/extensions.md).
+Shared physical defaults can be declared with
+`add_parameters!(device, Dict(EC1c=>4.3, EC2c=>4.5, EC12=>161.4))`.
+Component and interaction declarations remain separate; `device.parameters`
+returns a fresh assembled symbolic-keyed view. Use `add_parameters!` for updates
+rather than mutating that view. Repeated equal defaults are permitted. Conflicting
+defaults always fail with both values and sources, before recipe/build overrides
+or controls are applied. Interaction defaults are optional until build, where
+missing values can be supplied by explicit overrides. Recipe-local interaction
+defaults stay local to that recipe.

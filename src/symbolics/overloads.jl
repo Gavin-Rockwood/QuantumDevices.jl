@@ -1,86 +1,55 @@
-# ============================================================
-# Arithmetic
-# ============================================================
+Base.show(io::IO, ref::OperatorRef) = print(io, ref.owner, ".", ref.name)
 
-Base.:+(a::Sym, b::Sym) = call(+, a, b)
-Base.:+(a::Sym, b) = call(+, a, b)
-Base.:+(a, b::Sym) = call(+, a, b)
-
-Base.:-(a::Sym, b::Sym) = call(-, a, b)
-Base.:-(a::Sym, b) = call(-, a, b)
-Base.:-(a, b::Sym) = call(-, a, b)
-Base.:-(a::Sym) = call(-, a)
-
-Base.:*(a::Sym, b::Sym) = call(*, a, b)
-Base.:*(a::Sym, b) = call(*, a, b)
-Base.:*(a, b::Sym) = call(*, a, b)
-
-Base.:/(a::Sym, b::Sym) = call(/, a, b)
-Base.:/(a::Sym, b) = call(/, a, b)
-Base.:/(a, b::Sym) = call(/, a, b)
-
-Base.:^(a::Sym, b) = call(^, a, b)
-Base.:^(a::Number, b::Sym) = call(^, a, b)
-Base.literal_pow(::typeof(^), a::Sym, ::Val{n}) where {n} = call(^, a, n)
-
-Base.sin(a::Sym) = call(sin, a)
-Base.cos(a::Sym) = call(cos, a)
-Base.exp(a::Sym) = call(exp, a)
-Base.sqrt(a::Sym) = call(sqrt, a)
-
-function Base.show(io::IO, x::Sym)
-    e = x.expr
-    kind = e[1]
-    if kind === :val
-        show(io, e[2])
-    elseif kind === :op || kind === :param
-        print(io, kind, "(")
-        show(io, e[2])
-        print(io, ")")
-    elseif kind === :call
-        f, args = e[2], e[3:end]
-        if f in (+, -, *, /, ^) && length(args) == 2
-            print(io, "(")
-            show(io, args[1])
-            print(io, " ", f, " ")
-            show(io, args[2])
-            print(io, ")")
-        else
-            show(io, f)
-            print(io, "(")
-            for (i, arg) in enumerate(args)
-                i > 1 && print(io, ", ")
-                show(io, arg)
-            end
-            print(io, ")")
-        end
-    else
-        print(io, "Sym(")
-        show(io, e)
-        print(io, ")")
+for f in (:+, :-, :*, :/)
+    @eval begin
+        Base.$f(a::Sym, b::Sym) = isempty(refs(a, :op)) && isempty(refs(b, :op)) ? val($f(scalar_expression(a), scalar_expression(b))) : Sym((:call, $f, a, b))
+        Base.$f(a::Sym, b::Number) = $f(a, asym(b))
+        Base.$f(a::Number, b::Sym) = $f(asym(a), b)
     end
 end
 
-function Base.show(io::IO, ::MIME"text/plain", x::Sym)
-    print(io, "Sym: ")
-    show(io, x)
+Base.:-(a::Sym) = val(-1) * a
+Base.:^(a::Sym, n::Integer) = n >= 0 ? Sym((:power, a, n)) : throw(ArgumentError("negative power"))
+Base.literal_pow(::typeof(^), a::Sym, ::Val{N}) where {N} = a ^ N
+Base.adjoint(a::Sym) = isempty(refs(a, :op)) ? val(scalar_conjugate(scalar_expression(a))) : Sym((:adjoint, a))
+
+# These functions are scalar coefficients, never operator matrix functions.
+for f in (:cospi, :sinpi, :sqrt)
+    @eval function Base.$f(a::Sym)
+        isempty(refs(a, :op)) || throw(ArgumentError("scalar functions cannot contain operators"))
+        return val($f(scalar_expression(a)))
+    end
 end
 
 """
-    numerical(H::Sym, operators[, params]; scalar=1, dense=false)
+    latex(object; labels=Dict())
 
-Evaluate a symbolic expression. Complete scalar parameters produce a static result;
-missing or function-valued parameters produce a `QobjEvo`, callable as `(params, t)`.
-Function-valued parameters receive time as their single argument.
-`dense=true` materializes every operator matrix as a dense `Matrix` during
-construction. `dense=false` preserves the usual storage; scalar results stay scalar.
-`scalar` scales static results and is folded into operator matrices before
-constructing a `QobjEvo`, together with multiplicative constant coefficients.
+Return notebook mathematics without altering symbolic identities. Label keys are
+Symbolics variables, OperatorRef, or bound operator identities; LaTeXString values are raw
+math, while ordinary strings are escaped labels. Bound operators also accept a
+physical OperatorRef fallback. Input annotations are omitted when the alias equals
+the physical owner.
 """
-function numerical(H::Sym, operators::Container, params::Container; scalar::Number=1, dense::Bool=false)
-    required = parameter_keys(H)
-    dynamic = any(k -> !_has(params, k) || _get(params, k) isa Function, required)
-    return dynamic ? build_qobjevo(H, params, operators; scalar, dense) : _numerical_storage(scalar * numerical_static(H, params, operators), dense)
+function latex(object::MathDisplayObject; labels = Dict())
+    return latex_object(object, labels)
 end
-numerical(H::Sym, operators::Container; scalar::Number=1, dense::Bool=false) =
-    build_qobjevo(H, NamedTuple(), operators; scalar, dense)
+
+function latex_object(object, labels)
+    all(k -> k isa Union{Num, OperatorRef, BoundOperatorRef}, keys(labels)) ||
+        throw(ArgumentError("label keys must be parameter or operator identities"))
+    return latexstring(mathbody(object, labels))
+end
+
+Base.show(io::IO, ::MIME"text/latex", object::MathDisplayObject) = print(io, latex(object))
+Base.show(io::IO, s::Sym) = print(io, render_expression(s, false))
+
+Base.show(io::IO, ref::BoundOperatorRef) = print(io, ref.input, ".operators.", ref.physical)
+
+# A package helper only: Symbolics owns Num printing globally.
+latex(object::Num; labels=Dict()) = latex_object(val(object), labels)
+
+# Keep explicit conjugation even for real-declared variables: runtime controls may
+# supply complex drive amplitudes. Complex scalar leaves need the whole conjugate.
+scalar_conjugate(x::Complex) = scalar_conjugate(real(x)) - im*scalar_conjugate(imag(x))
+scalar_conjugate(x::Num) = Num(Symbolics.term(conj, x))
+scalar_conjugate(x::Number) = conj(x)

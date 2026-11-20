@@ -4,7 +4,7 @@ import path from 'node:path'
 // Documenter replaces these placeholders for branch, release, and preview builds.
 const location = { base: 'REPLACE_ME_DOCUMENTER_VITEPRESS' }
 const repositoryBase = '/' + location.base.split('/').filter(Boolean)[0] + '/'
-const versionScripts: any[] = process.env.DOCS_DEPLOY === 'true' ? [
+const versionScripts: any[] = (process.env.DOCS_DEPLOY === 'true' || process.env.DOCS_DEPLOY_LINKS === 'true') ? [
   ['script', { src: `${repositoryBase}versions.js` }],
   ['script', { src: `${location.base}siteinfo.js` }],
 ] : []
@@ -57,14 +57,10 @@ export default defineConfig({
     nav: [
       { text: 'Start', link: '/getting_started/quickstart' },
       { text: 'Guide', link: '/user_guide/models' },
-      {
-        text: 'Tutorials',
-        activeMatch: '^/tutorials/',
-        items: [
-          { text: 'Transmon resonator control', link: '/tutorials/transmon_resonator_control' },
-          { text: 'Tunable coupler control', link: '/tutorials/tunable_coupler_control' },
-        ],
-      },
+      { text: 'Tutorials', items: [
+        { text: 'Transmon–resonator control', link: '/tutorials/transmon_resonator_control' },
+        { text: 'Tunable coupler control', link: '/tutorials/tunable_coupler_control' },
+      ] },
       { text: 'API', link: '/resources/api' },
       { text: 'Development', link: '/development/extensions' },
       { component: 'VersionPicker' },

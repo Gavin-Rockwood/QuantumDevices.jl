@@ -1,52 +1,54 @@
-"""
-    make_transmon(name, EC, EJ, dimension; ng=0, hermcheck=1e-12)
-    make_transmon(; name, EC, EJ, dimension, ng=0, hermcheck=1e-12)
-
-Construct a transmon with `H = 4EC (ng - n)^2 - EJ * jump / 2`. The parent
-charge basis has `dimension = 2ncut + 1`; dimension must be a positive odd integer.
-The returned `charge` and `jump` operators are expressed in the eigenbasis of
-the construction Hamiltonian. Model truncation then retains its first levels.
-
-`EC` and `EJ` are energies divided by h, in cycles per unit time
-(e.g. GHz for time in ns); evolution uses `2π * H`. `ng` is dimensionless offset charge.
-`hermcheck` controls symmetrization of transformed operators and warnings, not
-physical convergence. Increase the parent charge cutoff to check convergence.
-"""
-function make_transmon(name, EC, EJ, dimension; ng = 0, hermcheck = 10^-12)
-    dimension isa Integer && dimension > 0 || throw(ArgumentError("Transmon dimension must be a positive integer"))
-    if iseven(dimension)
-        throw(ArgumentError("Initial Transmon dimension must be odd: dimension = 2*ncut + 1"))
-    end
-    ncut = (dimension-1) ÷ 2
-
-    parameters = (EC=EC, EJ=EJ, ng=ng)
-
-    initial_jump_operator = tunneling(dimension, 1)
-    initial_charge_operator = num(dimension) - ncut
-    initial_hamiltonian = 4*EC*(ng - initial_charge_operator)^2 - 0.5 * EJ*initial_jump_operator
-    initial_eigensystem = eigenstates(initial_hamiltonian)
-
-    U = QuantumObject(initial_eigensystem.vectors)
-    jump = U' * initial_jump_operator * U
-    if norm(jump-jump') < hermcheck
-        jump = (jump + jump')/2
-    else
-        @warn "Jump operator herm check exceeds $hermcheck"
-    end
-    charge = U' * initial_charge_operator * U
-    if norm(charge-charge') < hermcheck
-        charge = (charge + charge')/2
-    else
-        @warn "Charge operator herm check exceeds $hermcheck"
-    end
-
-    operators = (jump = jump, charge = charge)
-    hamiltonian = 4*param(:EC)*(param(:ng) - op(:charge))^2 - 0.5 * param(:EJ)*op(:jump)
-
-    return Component(name, parameters, operators, hamiltonian, "Transmon", dimension;basis=_ComponentBasis((:charge,dimension),Matrix(U.data)))
+function charge_basis_dimension(dimension)
+    dimension isa Integer && dimension > 0 && isodd(dimension) || throw(
+        ArgumentError("charge-basis dimension must be a positive odd state count (2*ncut + 1)"),
+    )
+    return dimension
 end
 
-make_transmon(; name, EC, EJ, dimension, ng=0, hermcheck=10^-12) =
-    make_transmon(name, EC, EJ, dimension; ng, hermcheck)
+function charge_basis_generators(name::Symbol, dimension)
+    charge_basis_dimension(dimension)
+    return Dict(
+        "charge" => OperatorGenerator(
+            BuiltinGenerator(:charge),
+            dimension,
+        ),
+        "jump" =>
+            OperatorGenerator(BuiltinGenerator(:jump), dimension),
+    )
+end
 
-COMPONENT_CONSTRUCTORS["Transmon"] = make_transmon
+"""
+    make_transmon(name::Symbol, EC, EJ; ng=0.0, dimension=101, label=missing, metadata=(;), subscript=missing)
+    make_transmon(name::Symbol; EC, EJ, kwargs...)
+    make_transmon(; name, EC, EJ, kwargs...)
+
+Construct the symbolic charge-basis Hamiltonian `4EC*(charge-ng)^2 - EJ*jump/2`.
+`EC` and `EJ` use frequency units `E/h`; `ng` is dimensionless offset charge.
+The `charge` and `jump` operator generators return QuantumToolbox operators,
+with charge states `-ncut:ncut` and nearest-neighbor tunneling respectively.
+`dimension = 2*ncut + 1` is a positive odd state count, defaulting to 101.
+No operators are generated or diagonalized until a numerical model is built.
+Increase the charge dimension to check convergence of retained energy levels.
+"""
+function make_transmon(
+    name::Symbol,
+    EC,
+    EJ;
+    ng = 0.0,
+    dimension = 101,
+    label = missing,
+    metadata = (;),
+    subscript = missing,
+)
+    variables, parameters = component_parameters(name; subscript, EC, EJ, ng)
+    hamiltonian =
+        4 * variables["EC"] * (op(name, :charge) - variables["ng"]) ^ 2 -
+        variables["EJ"] * op(name, :jump) / 2
+    operators, operator_generators = component_operators(name,
+        charge_basis_generators(name, dimension))
+    return Component(name; variables, parameters, operators, operator_generators, hamiltonian,
+        type="transmon", label=ismissing(label) ? string(name) : label, metadata)
+end
+
+make_transmon(name::Symbol; EC, EJ, kwargs...) = make_transmon(name, EC, EJ; kwargs...)
+make_transmon(; name, EC, EJ, kwargs...) = make_transmon(name, EC, EJ; kwargs...)

@@ -1,20 +1,26 @@
 """
-    Bump(k=2; center=nothing)
+    Bump(width;duration,k=2,center=duration/2)
 
-Smooth compact-support, unit-peak envelope `exp(k*x^2/(x^2-1))` for
-`abs(x) < 1`, zero otherwise, where `x = (t-center)/(duration/2)`.
-The positive dimensionless `k` controls sharpness; larger values narrow the peak.
-The center defaults to half the pulse duration and uses pulse-local time units.
-Changing `Pulse.duration` automatically rescales the width. A shifted center can
-truncate the bump at the pulse window boundaries.
+Compact support envelope with physical half-width and dimensionless sharpness k.
+Returns an Envelope with a physical reference duration and normalized shape payload.
 """
-struct Bump{K<:Real,C} <: AbstractEnvelope
-    k::K
-    center::C
-    function Bump(k::K, center::C) where {K<:Real,C}
-        _require_positive_width("k", k)
-        center === nothing || _require_finite_real("center", center)
-        new{K,C}(k, center)
-    end
+struct Bump{T0,T1,T2}
+    width::T0
+    k::T1
+    center::T2
+    Bump(::Val{:raw},width,k,center)=new{typeof(width),typeof(k),typeof(center)}(width,k,center)
 end
-Bump(k=2; center=nothing) = Bump(k, center)
+function Bump(;duration=nothing,width,k=2,center=nothing,rise=nothing,fall=nothing)
+    _require_positive_width("duration",duration)
+    center===nothing && (center=duration/2)
+    _require_finite_real("width",width)
+    _require_finite_real("k",k)
+    _require_finite_real("center",center)
+    width>0 || throw(ArgumentError("width must be positive"))
+    k>0 || throw(ArgumentError("k must be positive"))
+    0<=center<=duration || throw(ArgumentError("center must lie inside duration"))
+    return _wrap_shape(Bump(Val(:raw),width/duration,k,center/duration),duration,rise,fall)
+end
+Bump(x;duration=nothing,kwargs...)=Bump(;duration,width=x,kwargs...)
+_physical_parameters(s::Bump,d)=(width=s.width*d,k=s.k,center=s.center*d,)
+_shape_from_physical(::Bump,p,d)=Bump(;duration=d,width=p.width,k=p.k,center=p.center).shape

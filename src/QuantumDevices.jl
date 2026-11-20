@@ -1,62 +1,69 @@
 """
-    QuantumDevices
-
-Quantum-device Hamiltonians and energy parameters use frequency units, `E/h`
-(cycles per unit time), not angular frequency. For time in ns, use GHz.
-`numerical` preserves these units. Time evolution uses `2π * H`; `get_unitary`
-applies that factor at its solver call. Direct QuantumToolbox `sesolve`/`mesolve`
-calls require the caller to supply the same factor explicitly. Dimensionless
-parameters (for example flux and offset charge) and phases in radians retain
-their own conventions.
+Quantum-device Hamiltonians and energy parameters use frequency units `E/h`
+(cycles per unit time). For time in ns, use GHz. QuantumToolbox time evolution
+requires the caller to supply the corresponding `2π` factor.
 """
 module QuantumDevices
-    import Adapt
+    using SciMLBase: solve
+    export solve
     using LinearAlgebra
-    using SparseArrays
-    import JSON3
-    import JLD2
-    import SciMLBase
-    import CairoMakie
-    import LsqFit
-    import UnicodePlots
-    using SpecialFunctions: erf
-    using SciMLBase: MatrixOperator, solve
     using QuantumToolbox
+    using LaTeXStrings
+    import Latexify
+    import Symbolics
+    using Symbolics: Num
 
-    # Base Overloads
-    import Base.truncate
-
+    # Shared formatting and generic utilities load before core feature types.
     include("utils/utils.jl")
-    export getpath, haspath, setpath, setpath!, track_states, get_dressed_states
-    export state_amplitudes, plot_trajectories, plot_trajectories!
-    export FloquetBasis, get_floquet_basis, propagate_floquet_modes, floquet_sweep
-    export AvoidedCrossingFit, ResonanceResult, fit_avoided_crossing, find_resonance, plot_resonance
+    export LabelDiagnostic, TrackedData, TrackingResult, track_states
+    export DressedStates
+
     include("symbolics/symbolics.jl")
-    export Sym, op, param, val, call, numerical
+    export component_parameters, component_operators, OperatorRef, Sym, op, val, evaluate, latex
 
     include("Components/Components.jl")
-    export Component, make_qubit, make_resonator, make_transmon, make_tunable_transmon
+    export OperatorGenerator, Component, make_qubit, make_resonator
+    export make_transmon, make_flux_tunable_transmon
+
+    include("interactions/interactions.jl")
+    export Interaction
+
+    include("recipes/recipes.jl")
+    export Recipe, Leaf, Combine, Input, ResolvedRecipe, draft
+
+    include("device/device.jl")
+    export OperatorRegistry, get_operators, get_components
+    export QuantumDevice, add_parameters!, add_component!, add_interaction!, add_recipe!, replace_recipe!
+
+    # Graph inspection needs both recipe definitions and the QuantumDevice type.
+    include("recipes/graph.jl")
+    export graph
+
+    include("gates/pulses/pulses.jl")
+    export AbstractPulse, Pulse, PulseSequence, AbstractEnvelope, Envelope, InterpolatedEnvelope
+    export EnvelopeSequence, Segment, Constant, Gaussian, GaussianZero, GaussianSquare
+    export SineSquared, Cosine, Blackman, Sech, Bump, DRAG, Slepian, ErfSquare, RampedFlattop
+    export pulse_tstops, envelope_tstops, parameters, calibration_parameters, getpath, setpath, haspath
+    include("io/pulses.jl")
+    export save_pulse, load_pulse
 
     include("model/model.jl")
-    export DeviceModel, make_model
-    include("gates/gates.jl")
-    export AbstractPulse, Pulse, DeviceGate, pulse_tstops
-    export AbstractEnvelope, Constant, Gaussian, SineSquared, RampedFlattop, Envelope, envelope_value, validate_envelope
-    export GaussianZero, GaussianSquare, Sech, Cosine, Blackman, Bump, ErfSquare, Slepian, DRAG, envelope_tstops
-    export AbstractCarrier, SineCarrier, IQCarrier, Carrier, carrier_value
-    export parameters, calibration_values, calibration_problem, calibrated_gate, calibrate
-    export CalibrationProblem, solve
-    export AbstractCalibrationSetup, SciMLCalibrationSetup, get_unitary, gate_unitary, unitary_fidelity, unitary_infidelity, gate_infidelity
+    export NumericalModel, build, make_hamiltonian, get_hamiltonian, states
+    export stateindex, state, stateenergy
 
-    include("time_evolution/time_evolution.jl")
-    export get_gate_matrix
-    include("tomography/tomography.jl")
-    export Measurement, SequenceData, ModelTomographyProblem
-    export predict_sequence, predict_sequences, reconstructed_model, tomography_residuals, physical_parameters
-    include("io/io.jl")
-    export save, load
-
-
-
-
+    include("gates/recipes/recipes.jl")
+    export Control, GateRecipe, PreparedGate, check_endpoints
+    include("gates/evolution/evolution.jl")
+    export GateEvolution, evolve, unitary, idle_phases, gate_matrix
+    include("gates/calibration/calibration.jl")
+    export QuantumGate, CalibrationProblem, CalibrationResult, calibrated_recipe
+    export validate_calibration, gate_infidelity
+    include("utils/floquet/floquet.jl")
+    include("utils/spectral_tools/spectral_tools.jl")
+    export FloquetBasis, FloquetSweep, get_floquet_basis, propagate_floquet_modes, propagate_floquet_states, floquet_sweep
+    export AvoidedCrossingFit, ResonanceResult, fit_avoided_crossing, find_resonance, stark_shift, plot_resonance
+    include("gates/repository.jl")
+    export add_gate!, replace_gate!, move_gate!, get_gate, attach_artifact!
+    include("io/device/device.jl")
+    export save_device, load_device, register_io_codec!
 end

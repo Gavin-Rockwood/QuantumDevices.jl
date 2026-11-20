@@ -1,3 +1,6 @@
+include("parameters.jl")
 include("expressions.jl")
 include("evaluation.jl")
+include("terms.jl")
+include("rendering.jl")
 include("overloads.jl")

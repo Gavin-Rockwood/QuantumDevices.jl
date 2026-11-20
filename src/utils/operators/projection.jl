@@ -1,8 +1,8 @@
-function projection(N::Integer, inds)
-    N > 0 || throw(ArgumentError("Parent dimension must be positive"))
-    indices = collect(inds)
-    isempty(indices) && throw(ArgumentError("Projection must retain at least one state"))
-    all(i -> i isa Integer && 1 <= i <= N, indices) || throw(ArgumentError("Invalid projection indices"))
-    allunique(indices) || throw(ArgumentError("Projection indices must be unique"))
-    return QuantumObject(sparse(indices, eachindex(indices), ones(length(indices)), N, length(indices)))
+# Embedding: retained space → full input model space. Internal indices are one-based.
+function selection(dimension, indices)
+    return sum(
+        basis(dimension, j - 1) * basis(length(indices), k - 1)' for (k, j) in enumerate(indices)
+    )
 end
+
+ktensor(operators) = reduce(tensor, operators)

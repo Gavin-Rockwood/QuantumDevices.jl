@@ -1,11 +1,5 @@
-# Utils should not contain functions that dispatch on core structs such as Model or Component. Overloads and wrappers live beside those structs.
-include("getpath.jl")
-include("setpath.jl")
-include("operators/operators.jl")
+# Utilities load before core model/component/recipe types. Tracking and labeling
+# wrappers use generic signatures so their feature can load together.
+include("display.jl")
 include("tracking/tracking.jl")
-include("floquet/floquet.jl")
-include("spectral_tools/spectral_tools.jl")
-
-include("metrics/metrics.jl")
-include("states/amplitudes.jl")
-include("plotting/trajectories.jl")
+include("operators/operators.jl")

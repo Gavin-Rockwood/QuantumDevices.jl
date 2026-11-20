@@ -8,23 +8,25 @@ const BUILD_ROOT = joinpath(DOCS_ROOT, "build")
 const MARKDOWN_ONLY = get(ENV, "DOCS_MARKDOWN_ONLY", "false") == "true"
 const DEPLOY = get(ENV, "DOCS_DEPLOY", "false") == "true"
 const DRAFT = get(ENV, "DOCS_DRAFT", "false") == "true"
+const RUN_TUTORIALS = get(ENV, "DOCS_RUN_TUTORIALS", "false") == "true"
+DRAFT && RUN_TUTORIALS && error("DOCS_RUN_TUTORIALS=true requires DOCS_DRAFT=false; draft builds do not execute examples")
 DRAFT && DEPLOY && error("Draft documentation cannot be deployed")
 
-# The Julia walkthrough is the source for both the script and tutorial page.
-Literate.markdown(
-    joinpath(DOCS_ROOT, "src", "tutorials", "transmon_resonator_control.jl"),
-    joinpath(DOCS_ROOT, "src", "tutorials");
-    name="transmon_resonator_control", execute=false, credit=false,
-    codefence="```@example mode3" => "```",
-)
-
-Literate.markdown(
-    joinpath(DOCS_ROOT, "src", "tutorials", "tunable_coupler_control.jl"),
-    joinpath(DOCS_ROOT, "src", "tutorials");
-    name="tunable_coupler_control", execute=false, credit=false,
-    codefence="```@example coupler" => "```",
-    postprocess=content -> rstrip(content) * "\n",
-)
+# Active tutorial scripts are the single source. Full numerical workflows only
+# execute when explicitly requested; named blocks share one context per tutorial.
+function generate_tutorials()
+    sources = joinpath(DOCS_ROOT,"examples","tutorials")
+    destination = joinpath(DOCS_ROOT,"src","tutorials")
+    for name in ("transmon_resonator_control","tunable_coupler_control")
+        Literate.markdown(joinpath(sources,name*".jl"),destination;
+            name,execute=false,documenter=false,credit=false,
+            preprocess=RUN_TUTORIALS ? source -> replace(source,
+                r"(?ms)^# cheap-docs-begin\n.*?^# cheap-docs-end\n" => "") :
+                source -> replace(source, r"(?m)^# cheap-docs-(?:begin|end)\n" => ""),
+            codefence=(RUN_TUTORIALS ? "```@example $(name)" : "```julia") => "```")
+    end
+end
+generate_tutorials()
 
 function documentation_versions()
     repository = normpath(joinpath(DOCS_ROOT, ".."))
@@ -38,7 +40,7 @@ DocMeta.setdocmeta!(QuantumDevices, :DocTestSetup, :(using QuantumDevices); recu
 
 # checkdocs catches omitted documented exports; this audit also catches absent docstrings.
 undocumented = filter(names(QuantumDevices)) do name
-    name != :QuantumDevices && Base.Docs.doc(Base.Docs.Binding(QuantumDevices, name)) === nothing
+    name != :QuantumDevices && !Base.Docs.hasdoc(QuantumDevices, name)
 end
 isempty(undocumented) || error("Exported API lacks docstrings: $(join(undocumented, ", "))")
 
@@ -53,15 +55,17 @@ const PAGES = [
         "Components" => "user_guide/components.md",
         "Models and truncation" => "user_guide/models.md",
         "Pulses and flattops" => "user_guide/pulses.md",
+        "Gate recipes" => "user_guide/gate_recipes.md",
         "Gates and evolution" => "user_guide/gates.md",
         "Calibration" => "user_guide/calibration.md",
-        "Model tomography" => "user_guide/tomography.md",
+        "Floquet and Stark shifts" => "user_guide/floquet.md",
         "Parameter updates" => "user_guide/parameters.md",
         "State tracking" => "user_guide/tracking.md",
+        "Interaction-ramp labels" => "user_guide/state_labeling.md",
         "Persistence" => "user_guide/persistence.md",
     ],
     "Tutorials" => [
-        "Transmon resonator control" => "tutorials/transmon_resonator_control.md",
+        "Transmon–resonator control" => "tutorials/transmon_resonator_control.md",
         "Tunable coupler control" => "tutorials/tunable_coupler_control.md",
     ],
     "Technical explanations" => [
@@ -73,7 +77,6 @@ const PAGES = [
         "Symbolics" => "reference/symbolics.md",
         "Components and models" => "reference/models.md",
         "Pulses, gates, calibration" => "reference/gates.md",
-        "Model tomography" => "reference/tomography.md",
         "Tracking and paths" => "reference/tracking.md",
         "Spectral tools" => "reference/spectral_tools.md",
         "Persistence" => "reference/persistence.md",

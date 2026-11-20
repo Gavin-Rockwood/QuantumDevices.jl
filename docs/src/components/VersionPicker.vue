@@ -25,7 +25,7 @@ const items = computed(() => {
       text: version, link: `${versionRoot.value}/${version}/${path}${suffix}`,
       target: '_self', noIcon: true,
     }))
-    : [{ text: 'Local preview', link: site.value.base, target: '_self', noIcon: true }]
+    : [{ text: 'Local preview', link: '/', target: '_self', noIcon: true }]
 })
 
 async function switchVersion(event: MouseEvent) {

@@ -11,20 +11,20 @@ The evolution convention is
 ```
 
 Pass frequencies directly to component constructors and gate coefficients.
-`numerical` preserves frequency units by default, including the model's dressed eigenvalues.
-`get_unitary` explicitly supplies `2π * H` to QuantumToolbox. When calling
+`make_hamiltonian` preserves frequency units by default, including the model's dressed eigenvalues.
+Built-in `evolve` supplies the `2π` conversion internally. When calling
 QuantumToolbox `sesolve` or `mesolve` directly, use
-`numerical(model, gate; scalar=2pi)` to fold `2π` into the matrices, or supply
+`make_hamiltonian(model, gate; scalar=2pi)` to fold `2π` into the matrices, or supply
 `2π * H` yourself;
-do not also multiply constructor inputs or drive amplitudes by `2π`.
+Do not add another `2π` factor when using `evolve`.
 
 `make_qubit(name, ν)` uses `H=ν Z/2`; its splitting is `|ν|` in cycles per time.
 The first Pauli basis vector has Z eigenvalue +1. For positive `ν`, it is
 not the lower-energy state. Energy-level product labels are determined by local
 energy ordering and must not be substituted for computational basis indices.
 
-`SineCarrier` uses `sin(2π*f*t + phase)`, with `f` in cycles/time and phase in radians.
-Its clock defaults to pulse-local time. `SineSquared()` is a single envelope lobe over the pulse duration.
+`Pulse(shape, f; phase=0)` mixes an I+iQ envelope as `I*cos(2π*f*t+phase)-Q*sin(2π*f*t+phase)`, with f in cycles/time and phase in radians.
+Its clock defaults to pulse-local time. `SineSquared(; duration=T)` is a single envelope lobe over the pulse duration.
 For flux-tunable transmons, `phi` is flux divided by the flux quantum and `ng` is
 charge offset in the constructor's Cooper-pair convention.
 
@@ -32,7 +32,8 @@ charge offset in the constructor's Cooper-pair convention.
 
 Components `[a, b]` are ordered `a ⊗ b`. Gate targets and initial states must use
 that order and the model's retained dimensions. There is no automatic rotating
-frame, resonance search, or rotating-wave approximation. A drive is a Hamiltonian
+frame or rotating-wave approximation. Explicit resonance analysis is available through
+`find_resonance`; it does not change the gate evolution frame. A drive is a Hamiltonian
 coefficient multiplying its specified operator; its amplitude need not equal the
 observable Rabi angular frequency without an operator normalization convention.
 
@@ -46,29 +47,18 @@ For target and realized unitaries on a d-dimensional retained space,
 1-F_{\mathrm{avg}}=\frac{d}{d+1}(1-F_{\mathrm{pro}}).
 ```
 
-`unitary_fidelity` returns `F_pro`; `unitary_infidelity` returns `1-F_pro`,
-with results clamped to `[0,1]`.
-It checks target unitarity, not actual unitarity. Validate solver accuracy and
-unitarity when interpreting very small errors. The formula ignores global phase
-but includes relative phases. For a projected gate matrix `M`, the same overlap
-score retains leakage; the average-fidelity conversion above applies to unitaries.
-
-With `include_phases=false`, the score is
+The current `gate_infidelity(T,M)` uses the leakage-sensitive average loss
 
 ```math
-F_{\mathrm{prob}}=\frac{1}{d}\sum_j\left(\sum_i |T_{ij}|\,|M_{ij}|\right)^2.
+1-\frac{\operatorname{Tr}(M^\dagger M)+|\operatorname{Tr}(T^\dagger M)|^2}{d(d+1)}.
 ```
 
-This compares each column's transition probabilities without renormalizing
-projected columns. For an X or permutation target it is the mean correct-transfer
-probability. Mean leakage is `1 - sum(abs2, M)/d` for normalized evolved inputs
-and an orthonormal output basis. These are closed-system gate scores, not general
-fidelities for dissipative channels.
-
-`get_gate_matrix` and `CalibrationProblem` support selected input/output bases.
-Their default `frame=:lab` preserves lab phases; explicit `frame=:interaction`
-computes `C' * exp(2π*im*H_idle*T) * Ψ(T)`. It changes the final comparison,
-not the integration or its computational cost.
+The target is unitary and input/output order is explicit. Projected columns are
+never normalized: their missing norm measures leakage. Relative phases count;
+a common global phase cancels. `gate_matrix(evolution)` returns the physical
+projected propagator, and `idle_phases(evolution)` reports reference idle phases
+without applying a frame correction. No automatic interaction-frame or virtual-Z
+compensation is performed. These are closed-system scores, not dissipative-channel fidelities.
 
 ## Numerical limits
 

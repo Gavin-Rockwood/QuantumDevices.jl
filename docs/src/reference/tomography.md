@@ -1,6 +1,8 @@
+> **Historical API:** this page describes a removed tomography interface and is retained for migration reference. It is not part of the current supported API. Use [calibration](../user_guide/calibration.md) for current gate fitting.
+
 # Model tomography
 
-```@docs
+```text
 Measurement
 SequenceData
 ModelTomographyProblem
@@ -175,8 +177,10 @@ Normal `make_model` builds default to that bare trajectory, and accept
 Physical rebuilding does not inherit gates. Pass `gates=baseline.gates` explicitly
 to sequence fitting and, when needed, prediction. Gate-only updates reuse idle
 physics; selected gate-parameter paths are explicit updates and remain supported.
-Use `Component(component; operators=...)` to extend operators while preserving
-its derived basis metadata. Six-argument custom construction remains supported.
+Use the keyword `Component(name; variables, parameters, operators,
+operator_generators, hamiltonian, ...)` constructor when extending operators.
+The symbolic operator and numerical generator maps must have matching local
+string keys.
 
 ### Timing sequence fits
 
@@ -203,15 +207,3 @@ In threaded runs, individual gate times overlap: compare their wall-clock
 `propagation_seconds` rather than summing `gate_seconds`. Reports arrive on the
 calling task after gate workers finish. Diagnostics are disabled by default;
 callback errors propagate to the caller.
-
-### Evolution storage
-
-Model/gate evolution uses dense Hamiltonian and initial-state matrices by default.
-Use `evolution_kwargs=(; dense=false)` to preserve their original storage.
-The same options apply to `numerical(model, gate)`, `get_unitary(model, gate)`,
-`numerical(model, gate, states)`, and `sesolve(model, gate, initial, times)`.
-
-For a supplied Hamiltonian, `get_unitary(H, duration; dense=true)` also converts
-static matrices or the matrix terms of a `QobjEvo` to dense storage before solving.
-Time-dependent coefficients are preserved, and the input Hamiltonian is not modified.
-Use `dense=false` to preserve its original storage.

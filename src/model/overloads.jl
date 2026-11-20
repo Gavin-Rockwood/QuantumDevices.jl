@@ -1,51 +1,73 @@
-"""
-    numerical(model::DeviceModel, expression::Sym; scalar=1, dense=true)
-
-Evaluate a symbolic expression using the model's component operators, retained
-dimensions, and merged parameters. Operator names use the model's promoted names
-(for example, `op(:q_charge)`). Complete operator products are multiplied before
-projection, following the same rules as [`make_model`](@ref).
-
-For example, `numerical(model, model.hamiltonian)` reproduces `model.H`.
-Unresolved parameters produce a `QobjEvo`, as with the other symbolic overloads.
-`dense=true` (default) materializes operator matrices at construction.
-Use `dense=false` to preserve the original storage.
-`scalar` is folded into operator matrices and constant coefficients at construction.
-"""
-function numerical(model::DeviceModel, expression::Sym; scalar::Number=1, dense::Bool=true)
-    dims = [get(model.truncation_dimensions, c, c.dimension) for c in model.components]
-    return _evaluate_terms(_projected_terms(expression, model.components, dims), model.parameters; scalar, dense)
+function Base.getproperty(model::NumericalModel, name::Symbol)
+    if name == :parameters
+        return getfield(model, :recipe).parameters
+    elseif name == :states
+        return getfield(model, :eigensystem).states
+    elseif name in (:energies, :spectrum)
+        return getfield(model, :eigensystem).energies
+    elseif name == :labeling
+        tracking = getfield(model, :eigensystem).tracking
+        return tracking.tracked ? tracking : nothing
+    end
+    return getfield(model, name)
 end
 
-function Base.getproperty(model::DeviceModel, id::Symbol)
-    hasfield(DeviceModel, id) && return getfield(model, id)
-    id === :spectrum && return getfield(model, :eigensystem).others
-    hasfield(TrackingResult, id) && return getproperty(getfield(model, :eigensystem), id)
-    throw(ArgumentError("Property $id not found in DeviceModel"))
+Base.propertynames(model::NumericalModel, private::Bool = false) =
+    (fieldnames(typeof(model))..., :parameters, :states, :energies, :spectrum, :labeling)
+"""Return energy-ordered eigenstates in the model construction basis."""
+states(model::NumericalModel) =
+    collect(model.states)
+
+function Base.show(io::IO, model::NumericalModel)
+    return print(
+        io,
+        "NumericalModel(owners=",
+        sort!(collect(model.owners)),
+        ", dimension=",
+        length(model.spectrum),
+        ", operators=",
+        length(model.operators),
+        ")",
+    )
 end
 
-Base.propertynames(::DeviceModel, private::Bool = false) =
-    (fieldnames(DeviceModel)..., :spectrum, fieldnames(TrackingResult)...)
-function _replace_property(model::DeviceModel, key::Symbol, value)
-    return _rebuild_model(model, Dict(key => value))
+"""Zero-based energy index for a complete occupation tuple in model component order."""
+stateindex(model::NumericalModel, key::Tuple) = tracking_row(model.eigensystem.tracking, key) - 1
+stateindex(model::NumericalModel, first::Int, rest::Int...) = stateindex(model, (first, rest...))
+"""Return the labeled eigenstate in model construction coordinates, as `model.states(key)`."""
+state(model::NumericalModel, key::Tuple) = model.states(key)
+state(model::NumericalModel, first::Int, rest::Int...) = state(model, (first, rest...))
+"""Return the energy (E/h) associated with a complete occupation tuple."""
+stateenergy(model::NumericalModel, key::Tuple) = model.energies(key)
+stateenergy(model::NumericalModel, first::Int, rest::Int...) = stateenergy(model, (first, rest...))
+
+function Base.show(io::IO, ::MIME"text/plain", model::NumericalModel)
+    previewcount = min(length(model.spectrum), 6)
+    preview =
+        join(model.spectrum[1:previewcount], ", ") *
+        (previewcount < length(model.spectrum) ? " … ($(length(model.spectrum)) total)" : "")
+    labeling =
+        isnothing(model.labeling) ? "unavailable" :
+        "$(length(model.eigensystem.keys)) labels, $(count(d->d.ambiguous,model.labeling.diagnostics)) ambiguous, $(count(d->d.low_overlap,model.labeling.diagnostics)) low-overlap"
+    return summary_lines(
+        io,
+        model,
+        [
+            "NumericalModel · dimension $(length(model.spectrum))",
+            "  owners: " * list_summary(io, model.owners),
+            "  spectrum (E/h): " * preview,
+            "  operators ($(length(model.operators))): " * list_summary(io, keys(model.operators)),
+            "  labeling: " * labeling,
+            "  provenance: $(nameof(typeof(model.recipe.definition))) · resolved recipe with $(length(model.recipe.inputs)) immediate inputs",
+        ],
+    )
 end
 
-_replace_properties(model::DeviceModel, changes) = _rebuild_model(model, changes)
-
-function Base.show(io::IO, model::DeviceModel)
-    print(io, "DeviceModel(", length(model.components), " components, dimension=",
-        size(model.H, 1), ")")
+function model_identity(model::NumericalModel)
+    n = length(model.spectrum)
+    dimensions = Tuple(model.H.dims[1])
+    return qeye(n; dims=dimensions)
 end
 
-function Base.show(io::IO, ::MIME"text/plain", model::DeviceModel)
-    show(io, model)
-    limited = IOContext(io, :compact => true, :limit => true)
-    print(io, "\n  Components: ")
-    show(limited, [c.name for c in model.components])
-    print(io, "\n  Parameters: ")
-    show(limited, model.parameters)
-    print(io, "\n  Operators: ", length(model.operators))
-    print(io, "\n  Compiled terms: ", length(model.compiled_terms))
-    print(io, "\n  Gates: ")
-    show(limited, collect(keys(model.gates)))
-end
+"""Retrieve the model's physical symbolic Hamiltonian; numerical reference data remains in `.H`."""
+get_hamiltonian(model::NumericalModel) = getfield(model, :hamiltonian)

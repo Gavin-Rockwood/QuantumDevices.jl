@@ -1,18 +1,22 @@
 """
-    ErfSquare(sigma; ramp_time=2sigma)
+    ErfSquare(sigma;duration,ramp_time=2sigma)
 
-Unit-height flattop with symmetric, endpoint-normalized error-function edges.
-`sigma` and `ramp_time` use physical time units; both ramps must fit in the pulse
-window. Positive ramp times give exact zero endpoints. `ramp_time=0` gives an
-abrupt unit-height square. The plateau and each ramp join have value one.
+Error-function edges and a constant plateau. Both physical ramps must fit duration.
+Returns an Envelope with a physical reference duration and normalized shape payload.
 """
-struct ErfSquare{S<:Real,R<:Real} <: AbstractEnvelope
-    sigma::S
-    ramp_time::R
-    function ErfSquare(sigma::S, ramp_time::R) where {S<:Real,R<:Real}
-        _require_positive_width("sigma", sigma)
-        _require_finite_real("ramp_time", ramp_time) >= 0 || throw(ArgumentError("ramp_time must be nonnegative"))
-        new{S,R}(sigma, ramp_time)
-    end
+struct ErfSquare{T0,T1}
+    sigma::T0
+    ramp_time::T1
+    ErfSquare(::Val{:raw},sigma,ramp_time)=new{typeof(sigma),typeof(ramp_time)}(sigma,ramp_time)
 end
-ErfSquare(sigma; ramp_time=2sigma) = ErfSquare(sigma, ramp_time)
+function ErfSquare(;duration=nothing,sigma,ramp_time=2sigma,rise=nothing,fall=nothing)
+    _require_positive_width("duration",duration)
+    _require_finite_real("sigma",sigma)
+    _require_finite_real("ramp_time",ramp_time)
+    sigma>0 || throw(ArgumentError("sigma must be positive"))
+    0<=ramp_time<=duration/2 || throw(ArgumentError("Both ramps must fit duration"))
+    return _wrap_shape(ErfSquare(Val(:raw),sigma/duration,ramp_time/duration),duration,rise,fall)
+end
+ErfSquare(x;duration=nothing,kwargs...)=ErfSquare(;duration,sigma=x,kwargs...)
+_physical_parameters(s::ErfSquare,d)=(sigma=s.sigma*d,ramp_time=s.ramp_time*d,)
+_shape_from_physical(::ErfSquare,p,d)=ErfSquare(;duration=d,sigma=p.sigma,ramp_time=p.ramp_time).shape
