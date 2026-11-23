@@ -165,3 +165,41 @@ opt-in for bundled Julia code. See [Persistence](@ref).
 
 A runnable example is `docs/examples/pulses.jl`. Existing research notebooks are
 not automatically rewritten during this breaking alpha API migration.
+
+## Persistent recipes and compiled waveforms
+
+`PulseRecipe(envelope; kwargs...)` owns the pulse definition; `Pulse(recipe)`
+compiles it once. Existing `Pulse(envelope; kwargs...)` and
+`PulseSequence(children...; kwargs...)` constructors remain available.
+`PulseSequence` now returns a `Pulse` whose `recipe isa PulseSequenceRecipe`;
+use recipe dispatch instead of testing `isa PulseSequence`.
+
+`parameters(pulse)` returns its exact cached physical `NamedTuple`. Keys are flat
+canonical names, including component envelope fields, for example
+`parameters(pulse)[Symbol("envelope/segments/1/shape/sigma")]`.
+`calibration_parameters(pulse)` retains the flat `path => (path,value)` discovery
+contract. Segment starts and sequence durations follow component durations and
+cannot be selected independently. Gate paths also accept segment envelope fields
+without the `shape/` segment when unambiguous.
+
+```julia
+pulse = Pulse(Gaussian(2.; duration=10.); amplitude=0.3)
+pulse(5.; amplitude=0.4)
+pulse.f(5.; parameters(pulse)...)
+pulse(5.; duration=20., envelope=(sigma=2.,))
+```
+
+Duration-only edits stretch physical widths, DRAG beta, and interpolation nodes.
+An explicitly supplied width remains its supplied physical value, even when equal
+to its original default. Flat parameter splats specify all supplied physical
+fields explicitly. Unknown and structural keyword fields throw. `recipe`, `f`,
+and cached `parameters` cannot be edited with `setpath`; physical edits return a
+fresh compiled pulse.
+
+Built-in sample data and explicit custom state are captured independently in
+immutable storage. Custom callbacks retain `f(parameters,u)` with normalized
+`u`; mutable opaque closure captures remain outside reproducibility guarantees.
+Slepian bandwidth and custom-state changes require `setpath` and recompilation;
+unchanged defaults can still be passed through `parameters(pulse)...`.
+Standalone pulse records now store version-3 recipes and compile fresh callables
+on load. Version-1 physical and version-2 normalized records remain readable.

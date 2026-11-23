@@ -20,7 +20,7 @@ function _check_calibration_symbols(prepared::PreparedGate,coordinates::Tuple)
     for expression in vcat([prepared.model.hamiltonian],prepared.terms)
         union!(physical,refs(expression,:param))
     end
-    for control in prepared.recipe.controls, (_,(_,value)) in parameters(control.pulse)
+    for control in prepared.recipe.controls, (_,(_,value)) in calibration_parameters(control.pulse)
         value isa Num && push!(physical,value)
     end
     isempty(intersect(Set(coordinates),physical)) || throw(ArgumentError(
@@ -71,4 +71,26 @@ function _parameter_updates(coordinates::Tuple,parameterization::NamedTuple,valu
         push!(updates,path=>value)
     end
     return updates
+end
+# Symbolic links compile once and evaluate simultaneously for each candidate.
+function _compile_parameter_updates(coordinates,parameterization)
+    if parameterization.mode===:direct
+        return values -> begin
+            length(values)==length(coordinates) || throw(DimensionMismatch("wrong coordinate count"))
+            all(_gate_real,values) || throw(ArgumentError("optimizer coordinates must be finite real scalars"))
+            Dict(path=>value for (path,value) in zip(coordinates,values))
+        end
+    end
+    links=Tuple(path=>Symbolics.build_function(expression,coordinates...;expression=Val(false)) for (path,expression) in parameterization.links)
+    return values -> begin
+        length(values)==length(coordinates) || throw(DimensionMismatch("wrong coordinate count"))
+        all(_gate_real,values) || throw(ArgumentError("optimizer coordinates must be finite real scalars"))
+        result=Dict{String,Any}()
+        for (path,f) in links
+            value=f(values...)
+            _gate_real(value) || throw(ArgumentError("link $path must resolve to a finite real scalar"))
+            result[path]=value
+        end
+        _concrete_runtime_dict(result)
+    end
 end

@@ -16,7 +16,7 @@ function _validate_stored_prepared(prepared,path)
     validate_parameter_values(prepared.parameters)
     for control in prepared.recipe.controls
         haskey(prepared.parameters,control.target) || _ioerror(path,"control target has no captured physical value")
-        for (_,(_,value)) in parameters(control.pulse)
+        for (_,(_,value)) in calibration_parameters(control.pulse)
             value isa Num && !issubset(Set(Symbolics.get_variables(value)),Set(keys(prepared.parameters))) && _ioerror(path,"offset references absent captured values")
         end
     end

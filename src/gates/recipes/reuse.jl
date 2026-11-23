@@ -113,7 +113,7 @@ Missing products require an explicit rebuild with the gate terms. `scalar` and
 fixed coefficient factors are folded into fresh matrices before `herm_check`,
 with the same units and cleanup semantics as `make_hamiltonian(model)`.
 """
-function make_hamiltonian(model::NumericalModel,gate::GateRecipe;scalar::Number=1,remove_vacuum::Bool=false,herm_check=1e-9)
+function make_hamiltonian(model::NumericalModel,gate::GateRecipe;free_parameters=(),scalar::Number=1,remove_vacuum::Bool=false,herm_check=1e-9)
     extra,values = _reuse_gate_data(model,gate)
-    return _compile_gate(model,gate,extra,values;scalar,remove_vacuum,herm_check)
+    return _compile_gate(model,gate,extra,values;free_parameters,scalar,remove_vacuum,herm_check)
 end

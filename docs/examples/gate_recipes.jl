@@ -49,8 +49,8 @@ H_both = make_hamiltonian(both)
 H_both(nothing,10.0)
 println("Prepared dimension: ",length(both.model.spectrum),"; pulse stops: ",pulse_tstops(both))
 
-# Runtime p is ignored: controls use captured pulses; all other coefficients use
-# resolved build values. Build parameters override recipe and term defaults.
+# With no free_parameters keyword, runtime p is ignored and controls use captured
+# pulses. Build parameters override recipe and term defaults.
 # draft(both.recipe) returns independent editable model/control/term provenance.
 # Preparation captures physical definitions for calibration provenance.
 # Arbitrary callable captured state remains outside the snapshot boundary.

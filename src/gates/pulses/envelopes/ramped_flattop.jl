@@ -50,6 +50,6 @@ end
 _ramp_physical(s::Symbol,d)=s
 _ramp_physical(s::NamedTuple,d)=Envelope(Val(:raw),s.shape,d,s.rise,s.fall)
 _physical_parameters(s::RampedFlattop,d)=(rise_time=s.rise_time*d,fall_time=s.fall_time*d,
-    ramp_up=iszero(s.rise_time) ? s.ramp_up : _ramp_physical(s.ramp_up,s.rise_time*d),
-    ramp_down=iszero(s.fall_time) ? s.ramp_down : _ramp_physical(s.ramp_down,s.fall_time*d))
+    ramp_up=_ramp_physical(s.ramp_up,s.rise_time*d),
+    ramp_down=_ramp_physical(s.ramp_down,s.fall_time*d))
 _shape_from_physical(::RampedFlattop,p,d)=RampedFlattop(p.rise_time;duration=d,fall_time=p.fall_time,ramp_up=p.ramp_up,ramp_down=p.ramp_down).shape

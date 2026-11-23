@@ -1,6 +1,6 @@
 using JLD2
 # New identifiers describe normalized payloads; v1 identifiers retain physical semantics.
-const _PULSE_IMPLEMENTATIONS=(pulse=Pulse,pulse_sequence=PulseSequence,constant_frequency=ConstantFrequency,
+const _PULSE_IMPLEMENTATIONS=(pulse=Pulse,pulse_sequence=PulseSequenceRecipe,pulse_recipe=PulseRecipe,pulse_sequence_recipe=PulseSequenceRecipe,constant_frequency=ConstantFrequency,
     normalized_envelope=Envelope,normalized_constant=Constant,normalized_gaussian=Gaussian,
     normalized_gaussian_zero=GaussianZero,normalized_sine_squared=SineSquared,normalized_cosine=Cosine,
     normalized_blackman=Blackman,normalized_sech=Sech,normalized_bump=Bump,normalized_drag=DRAG,
@@ -14,18 +14,18 @@ const _V1_SHAPES=(constant=:Constant,gaussian=:Gaussian,gaussian_zero=:GaussianZ
     ramp=:Ramp,interpolated_envelope=:InterpolatedEnvelope,custom_envelope=:Envelope)
 function _pulse_storage_fields(x)
     x isa LegacyEnvelope && return (:implementation,:fields,:duration)
-    x isa PulseSequence && return (:pulses,:offset,:delay)
+    x isa PulseSequenceRecipe && return (:pulses,:offset,:delay)
     x isa Slepian && return (:time_bandwidth,:samples)
     return fieldnames(typeof(x))
 end
 function _pulse_record(x::_PulseObject)
-    tag=findfirst(T->x isa T,_PULSE_IMPLEMENTATIONS)
+    tag=x isa PulseSequenceRecipe ? :pulse_sequence_recipe : findfirst(T->x isa T,_PULSE_IMPLEMENTATIONS)
     tag===nothing && throw(ArgumentError("No persistence implementation for $(typeof(x))"))
-    return (kind=:control,implementation=tag,version=2,
+    return (kind=:control,implementation=tag,version=3,
         fields=(;(k=>_pulse_record(getproperty(x,k)) for k in _pulse_storage_fields(x))...))
 end
 function _restore_pulse_fields(id,version,f::NamedTuple)
-    version in (1,2) || throw(ArgumentError("Unsupported pulse record version"))
+    version in (1,2,3) || throw(ArgumentError("Unsupported pulse record version"))
     if version==1 && haskey(_V1_SHAPES,id)
         kind=_V1_SHAPES[id]
         T=_LEGACY_SHAPE_TYPES[kind]
@@ -35,16 +35,21 @@ function _restore_pulse_fields(id,version,f::NamedTuple)
     end
     version==1 && !(id in (:pulse,:pulse_sequence,:constant_frequency,:envelope_sequence,:segment)) &&
         throw(ArgumentError("Normalized shape and adapter identifiers require pulse record version 2"))
+    if version==3 && id===:pulse
+        keys(f)==(:recipe,) || throw(ArgumentError("compiled pulse records store recipe only"))
+        return Pulse(f.recipe)
+    end
     haskey(_PULSE_IMPLEMENTATIONS,id) || throw(ArgumentError("Unknown pulse implementation $id"))
     T=_PULSE_IMPLEMENTATIONS[id]
     expected=T===Slepian ? (:time_bandwidth,:samples) : fieldnames(T)
     T===LegacyEnvelope && (expected=(:implementation,:fields,:duration))
-    version==1 && T===Pulse && (expected=(:envelope,:carrier,:amplitude,:offset,:duration,:delay))
+    T===Pulse && (expected=version==1 ? (:envelope,:carrier,:amplitude,:offset,:duration,:delay) : (:envelope,:carrier,:amplitude,:offset,:delay))
     version==1 && T===Segment && (expected=(:shape,:duration))
-    T===PulseSequence && (expected=(:pulses,:offset,:delay))
+    T===PulseSequenceRecipe && (expected=(:pulses,:offset,:delay))
     Set(keys(f))==Set(expected) || throw(ArgumentError("Pulse field schema mismatch for $id"))
     T===Pulse && return Pulse(f.envelope,f.carrier,f.amplitude,f.offset,version==1 ? f.duration : nothing,f.delay)
-    T===PulseSequence && return PulseSequence(f.pulses...;offset=f.offset,delay=f.delay)
+    T===PulseSequenceRecipe && return id===:pulse_sequence_recipe ? PulseSequenceRecipe(f.pulses...;offset=f.offset,delay=f.delay) : PulseSequence(f.pulses...;offset=f.offset,delay=f.delay)
+    T===PulseRecipe && return PulseRecipe(f.envelope,f.carrier,f.amplitude,f.offset,nothing,f.delay)
     T===EnvelopeSequence && return EnvelopeSequence(f.segments...)
     T===Segment && return Segment(f.shape;duration=f.duration,scale=get(f,:scale,1))
     T===Envelope && return _raw_envelope(f.shape,f.duration,f.rise,f.fall)
@@ -89,7 +94,7 @@ Custom `Envelope` callables use JLD2's function serialization; their definitions
 and dependencies must be available when loading, and anonymous functions may not
 be portable between sessions. Only load files from trusted sources.
 """
-function save_pulse(filename::AbstractString, control::_PulseObject)
+function save_pulse(filename::AbstractString, control::Union{Pulse,_PulseObject})
     JLD2.jldsave(filename; pulse_schema = 1, control = _pulse_record(control))
     return filename
 end
@@ -100,3 +105,5 @@ function load_pulse(filename::AbstractString)
         return _restore_pulse_record(file["control"])
     end
 end
+
+_pulse_record(p::Pulse) = (kind=:control,implementation=:pulse,version=3,fields=(recipe=_pulse_record(p.recipe),))

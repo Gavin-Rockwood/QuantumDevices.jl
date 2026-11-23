@@ -58,7 +58,8 @@ device=load_device(folder;allow_code=true)
 save_device(ARGS[2],device)
 println("fresh custom source passed")
 """)
-    command=`$(Base.julia_cmd()) --threads=2,0 --compiled-modules=existing --project=$(pkgdir(QD)) $check $copyfolder $(joinpath(root,"fresh-copy"))`
+    # Inherit the resolved test environment, including fresh consumer installs.
+    command=`$(Base.julia_cmd()) --threads=2 --compiled-modules=existing --project=$(dirname(Base.active_project())) $check $copyfolder $(joinpath(root,"fresh-copy"))`
     logfile=joinpath(root,"source-process.log")
     passed=success(pipeline(command;stdout=logfile,stderr=logfile))
     passed || println(read(logfile,String))
@@ -84,5 +85,5 @@ continued=solve(p;maxiters=2)
 @test length(continued.fitted_values)==1
 println("fresh replay and continuation passed")
 """)
-    @test success(pipeline(`$(Base.julia_cmd()) --threads=2,0 --compiled-modules=existing --project=$(pkgdir(QD)) $check $builtin`;stdout=devnull))
+    @test success(pipeline(`$(Base.julia_cmd()) --threads=2 --compiled-modules=existing --project=$(dirname(Base.active_project())) $check $builtin`;stdout=devnull))
 end

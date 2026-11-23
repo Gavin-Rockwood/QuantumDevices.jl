@@ -33,7 +33,7 @@ belong to the enclosing `Pulse`; its duration forwards the envelope reference.
 shape = Envelope((p,u) -> p.scale * sinpi(u)^2, (; scale=1.0); duration=1.0)
 pulse = Pulse(shape; amplitude=0.2, duration=1.0)
 @assert pulse(0.5) ≈ 0.2
-parameters(pulse)["envelope/parameters/scale"]
+parameters(pulse)[Symbol("envelope/parameters/scale")]
 ```
 
 Use the positional frequency overload `Pulse(shape, frequency; phase=0, reference=:pulse)`

@@ -7,23 +7,32 @@ const DOCS_ROOT = @__DIR__
 const BUILD_ROOT = joinpath(DOCS_ROOT, "build")
 const MARKDOWN_ONLY = get(ENV, "DOCS_MARKDOWN_ONLY", "false") == "true"
 const DEPLOY = get(ENV, "DOCS_DEPLOY", "false") == "true"
-const DRAFT = get(ENV, "DOCS_DRAFT", "false") == "true"
+const EXECUTION = get(ENV, "DOCS_EXECUTION", "changed")
+EXECUTION in ("changed", "refresh", "preview") || error("DOCS_EXECUTION must be changed, refresh, or preview")
+const PREVIEW = EXECUTION == "preview"
+const DRAFT = PREVIEW || get(ENV, "DOCS_DRAFT", "false") == "true"
 const RUN_TUTORIALS = get(ENV, "DOCS_RUN_TUTORIALS", "false") == "true"
-DRAFT && RUN_TUTORIALS && error("DOCS_RUN_TUTORIALS=true requires DOCS_DRAFT=false; draft builds do not execute examples")
+EXECUTION == "refresh" && !RUN_TUTORIALS && error("DOCS_EXECUTION=refresh requires DOCS_RUN_TUTORIALS=true")
+DRAFT && RUN_TUTORIALS && !PREVIEW && error("DOCS_RUN_TUTORIALS=true requires DOCS_DRAFT=false; draft builds do not execute examples")
 DRAFT && DEPLOY && error("Draft documentation cannot be deployed")
 
-# Active tutorial scripts are the single source. Full numerical workflows only
-# execute when explicitly requested; named blocks share one context per tutorial.
+include("tutorial_cache.jl")
+# Extra includes/data must be declared here, relative to the repository root.
+const TUTORIAL_INPUTS = Dict{String,Vector{String}}()
 function generate_tutorials()
-    sources = joinpath(DOCS_ROOT,"examples","tutorials")
-    destination = joinpath(DOCS_ROOT,"src","tutorials")
-    for name in ("transmon_resonator_control","tunable_coupler_control")
-        Literate.markdown(joinpath(sources,name*".jl"),destination;
-            name,execute=false,documenter=false,credit=false,
-            preprocess=RUN_TUTORIALS ? source -> replace(source,
-                r"(?ms)^# cheap-docs-begin\n.*?^# cheap-docs-end\n" => "") :
-                source -> replace(source, r"(?m)^# cheap-docs-(?:begin|end)\n" => ""),
-            codefence=(RUN_TUTORIALS ? "```@example $(name)" : "```julia") => "```")
+    sources = joinpath(DOCS_ROOT, "examples", "tutorials")
+    destination = joinpath(DOCS_ROOT, "src", "tutorials")
+    for name in ("transmon_resonator_control", "tunable_coupler_control")
+        source = joinpath(sources, name * ".jl")
+        if RUN_TUTORIALS || PREVIEW
+            TutorialCache.tutorial(source, destination; name,
+                repository=dirname(DOCS_ROOT), mode=EXECUTION,
+                inputs=get(TUTORIAL_INPUTS, name, String[]))
+        else
+            Literate.markdown(source, destination; name, execute=false,
+                documenter=false, credit=false, preprocess=TutorialCache.cheap_source,
+                codefence="```julia" => "```")
+        end
     end
 end
 generate_tutorials()

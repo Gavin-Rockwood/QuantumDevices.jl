@@ -32,13 +32,14 @@ function _gate_model_description(io::IO,model_recipe)
     return _gate_display_text(io,nameof(typeof(model_recipe));width=64)
 end
 
-function _pulse_display_rows(io::IO,pulse::AbstractPulse; depth::Int=0)
+function _pulse_display_rows(io::IO,pulse::Union{AbstractPulse,AbstractPulseRecipe}; depth::Int=0)
     scalar(value) = _gate_display_text(io,value;width=32)
     offset(value) = value isa Num ? "reference: "*scalar(value) : scalar(value)
     rows = hasproperty(pulse,:delay) && hasproperty(pulse,:duration) ?
-        ["Delay: $(scalar(getfield(pulse,:delay)))   Duration: $(scalar(pulse.duration))"] :
+        ["Delay: $(scalar(pulse.delay))   Duration: $(scalar(pulse.duration))"] :
         ["Timing: stored delay/duration unavailable"]
-    if pulse isa Pulse
+    pulse = pulse isa Pulse ? pulse.recipe : pulse
+    if pulse isa PulseRecipe
         envelope = pulse.envelope
         shape = envelope isa Envelope ? (envelope.shape isa CustomShape ? "Envelope (custom, $(length(envelope.parameters)) parameters)" : string(nameof(typeof(envelope.shape)))) :
             envelope isa EnvelopeSequence ? "EnvelopeSequence ($(length(envelope.segments)) segments)" :
@@ -52,7 +53,7 @@ function _pulse_display_rows(io::IO,pulse::AbstractPulse; depth::Int=0)
             carrier = pulse.carrier
             push!(rows,"Carrier: frequency=$(scalar(carrier.frequency)), phase=$(scalar(carrier.phase)), reference=$(scalar(carrier.reference))")
         end
-    elseif pulse isa PulseSequence
+    elseif pulse isa PulseSequenceRecipe
         pushfirst!(rows,"Shape: PulseSequence ($(length(pulse.pulses)) children)")
         push!(rows,"Offset: $(offset(pulse.offset))")
         if depth==0

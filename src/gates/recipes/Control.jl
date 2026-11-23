@@ -9,3 +9,5 @@ struct Control{P <: AbstractPulse}
     end
 end
 
+
+Control(name::Symbol,target,recipe::AbstractPulseRecipe) = Control(name,target,Pulse(recipe))

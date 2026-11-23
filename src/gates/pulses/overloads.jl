@@ -1,4 +1,4 @@
-function _pulse_value(p::Pulse, t, sequence_time)
+function _pulse_value(p::PulseRecipe, t, sequence_time)
     p.delay<=t<=p.delay+p.duration || return p.offset
     local_time=t==p.delay+p.duration ? p.duration : t-p.delay
     return _require_finite(
@@ -11,7 +11,7 @@ function _pulse_value(p::Pulse, t, sequence_time)
         ),
     )
 end
-function _pulse_value(p::PulseSequence, t, sequence_time)
+function _pulse_value(p::PulseSequenceRecipe, t, sequence_time)
     p.delay<=t<=p.delay+p.duration || return p.offset
     local_time=t-p.delay
     previous=zero(local_time)
@@ -26,7 +26,7 @@ function _pulse_value(p::PulseSequence, t, sequence_time)
     end
     return p.offset
 end
-function (p::AbstractPulse)(t::Real)
+function (p::AbstractPulseRecipe)(t::Real)
     _require_resolved_pulse(p)
     _require_finite_real("time", t)
     return _pulse_value(p, t, t)
@@ -37,12 +37,12 @@ end
 Return sorted unique physical control boundaries, joins and interpolation knots,
 including delay and nested sequence placement. Supply these times to an integrator.
 """
-pulse_tstops(p::Pulse) = sort!(
+pulse_tstops(p::PulseRecipe) = sort!(
     unique(
         vcat([p.delay, p.delay+p.duration], p.delay .+ _validated_envelope_tstops(p.envelope, p.duration)),
     ),
 )
-function pulse_tstops(p::PulseSequence)
+function pulse_tstops(p::PulseSequenceRecipe)
     result=Real[p.delay, p.delay+p.duration]
     start=p.delay
     for child in p.pulses
@@ -67,15 +67,25 @@ function _reference_offset(offset, reference)
     haskey(reference, offset) || throw(ArgumentError("pulse offset reference $offset is missing from model.parameters"))
     return reference[offset]
 end
-function _resolve_pulse(p::Pulse, reference)
-    return Pulse(p.envelope, p.carrier, p.amplitude,
+function _resolve_pulse(p::PulseRecipe, reference)
+    return PulseRecipe(p.envelope, p.carrier, p.amplitude,
         _reference_offset(p.offset, reference), p.duration, p.delay)
 end
-_resolve_pulse(p::PulseSequence, reference) = PulseSequence(
+_resolve_pulse(p::PulseSequenceRecipe, reference) = PulseSequenceRecipe(
     (_resolve_pulse(child, reference) for child in p.pulses)...;
     offset=_reference_offset(p.offset, reference), delay=p.delay)
-function _require_resolved_pulse(p::AbstractPulse)
+function _require_resolved_pulse(p::AbstractPulseRecipe)
     p.offset isa Num && throw(ArgumentError("pulse offset $(p.offset) requires a model reference; compile with make_hamiltonian(model, gate) or build(device, gate)"))
-    p isa PulseSequence && foreach(_require_resolved_pulse, p.pulses)
+    p isa PulseSequenceRecipe && foreach(_require_resolved_pulse, p.pulses)
     return nothing
 end
+
+_pulse_value(p::Pulse,t,s) = _pulse_value(p.recipe,t,s)
+pulse_tstops(p::Pulse) = pulse_tstops(p.recipe)
+_resolve_pulse(p::Pulse,reference) = Pulse(_resolve_pulse(p.recipe,reference))
+_require_resolved_pulse(p::Pulse) = _require_resolved_pulse(p.recipe)
+function (p::Pulse)(t::Real;kwargs...)
+    return getfield(p,:f)(t;kwargs...)
+end
+"""Return the physical waveform duration, excluding its outer delay."""
+pulse_duration(p::Union{Pulse,AbstractPulseRecipe}) = p.duration

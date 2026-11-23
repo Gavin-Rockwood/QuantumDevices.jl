@@ -10,3 +10,7 @@ docs/build/
 docs/node_modules/
 docs/docs/node_modules/
 AGENTS.md
+
+# Full tutorial execution cache and generated figures.
+docs/.execution-cache/
+docs/src/tutorials/*_assets/

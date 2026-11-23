@@ -7,9 +7,9 @@ function Base.show(io::IO,e::Envelope)
     end
     return print(io,")")
 end
-Base.show(io::IO, p::Pulse) =
+Base.show(io::IO, p::PulseRecipe) =
     print(io, "Pulse(", p.envelope, ", duration=", p.duration, ", delay=", p.delay, ")")
-Base.show(io::IO, p::PulseSequence) = print(
+Base.show(io::IO, p::PulseSequenceRecipe) = print(
     io,
     "PulseSequence(",
     length(p.pulses),
@@ -19,3 +19,5 @@ Base.show(io::IO, p::PulseSequence) = print(
     p.delay,
     ")",
 )
+
+Base.show(io::IO,p::Pulse) = show(io,p.recipe)

@@ -22,7 +22,7 @@ function build(device::QuantumDevice, gate::GateRecipe; parameters=Dict{Num,Numb
     all(control -> control.target in required,captured.controls) ||
         throw(ArgumentError("control target must appear in endpoint Hamiltonian or gate terms"))
     model = assemble_node(node;dressed_threads,tracking_threads)
-    foreach(c -> _resolve_pulse(c.pulse,values),captured.controls)
+    foreach(c -> _resolve_reference_tree(c.pulse.recipe,_parameter_tree(c.pulse.recipe),values),captured.controls)
     return PreparedGate(captured, model, extra, values, capture_gate_context(device))
 end
 

@@ -20,8 +20,9 @@ Pkg.instantiate()
 using QuantumDevices
 ```
 
-The package declares Julia 1.10 or newer; dependency resolution determines which
-compatible versions can be installed. The CI build uses the current Julia release.
+The package requires Julia 1.11 or newer in the Julia 1.x series. CI tests Julia
+1.11 and the current Julia release. Dependency resolution selects compatible
+package versions.
 Use one project environment consistently when running scripts and notebooks.
 
 ## The workflow

@@ -42,9 +42,10 @@ external state remains outside that snapshot boundary.
 
 ## Pulse paths
 
-`parameters(pulse)` discovers structural pulse values using paths such as
-`"amplitude"`, `"carrier/frequency"`, and `"envelope/sigma"`. Gate controls prefix
-them with their control names, for example `"drive/amplitude"`.
+`parameters(pulse)` returns a cached flat `NamedTuple` of physical values, keyed by
+symbols such as `Symbol("amplitude")`, `Symbol("carrier/frequency")`, and
+`Symbol("envelope/sigma")`. Gate controls prefix paths with their control names,
+for example `"drive/amplitude"`.
 
 ```@example parameters
 using QuantumDevices
@@ -57,7 +58,8 @@ parameters(updated)
 
 Paths use `/` separators and one-based indices. `setpath` copies the edited path
 and rebuilds immutable structures; unchanged branches may remain shared. Use
-`calibration_parameters` for selectable finite real optimization values. Physical
+`calibration_parameters` for selectable finite real optimization values, returned
+as a flat path-to-`(path, value)` discovery map. Physical
 Symbolics parameter maps are separate from this structural pulse-path interface.
 
 Shared physical defaults can be declared with

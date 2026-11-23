@@ -4,9 +4,13 @@
 
 ```@docs
 AbstractPulse
+AbstractPulseRecipe
+PulseRecipe
+PulseSequenceRecipe
 Pulse
 PulseSequence
 pulse_tstops
+pulse_duration
 AbstractEnvelope
 Envelope
 EnvelopeSequence

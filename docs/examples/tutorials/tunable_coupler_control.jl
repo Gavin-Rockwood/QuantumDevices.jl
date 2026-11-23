@@ -130,7 +130,7 @@ flux_figure
 # Selected columns still evolve in the full retained model. Project each saved
 # propagator onto the ordered exchange pair to obtain target population.
 
-evolution_options = (;abstol=1e-8,reltol=1e-8)
+evolution_options = (;abstol=1e-8,reltol=1e-8,energy_shift=:auto)
 trial = evolve(prepared;states=exchange_states,saveat=times,evolution_options...)
 transfer_before = [abs2(gate_matrix(trial;step=i).data[2,1]) for i in eachindex(trial.times)]
 trial_matrix = gate_matrix(trial)

@@ -132,20 +132,20 @@ setpath(object, path::AbstractString, value) = _setpath(object, _path_keys(path)
 
 const _ShapePayload=Union{Constant,Gaussian,GaussianZero,SineSquared,Cosine,Blackman,Sech,Bump,DRAG,Slepian,GaussianSquare,ErfSquare,RampedFlattop,InterpolatedEnvelope,CustomShape,Region}
 Envelope(s::_ShapePayload;duration,rise=nothing,fall=nothing)=_wrap_shape(s,duration,rise,fall)
-const _PulseObject = Union{AbstractPulse,AbstractEnvelope,ConstantFrequency,Segment,_ShapePayload}
+const _PulseObject = Union{AbstractPulseRecipe,AbstractEnvelope,ConstantFrequency,Segment,_ShapePayload}
 function _pulse_fields(x)
     x isa Envelope && return (:duration,keys(_physical_parameters(x.shape,x.duration))...)
     x isa LegacyEnvelope && return (:duration,keys(x.fields)...)
-    x isa Pulse && return (:envelope,:carrier,:amplitude,:offset,:duration,:delay)
+    x isa PulseRecipe && return (:envelope,:carrier,:amplitude,:offset,:duration,:delay)
     fields=fieldnames(typeof(x))
-    return filter(k -> !(k in (:interpolant, :weights)) && !(x isa PulseSequence && k===:duration), fields)
+    return filter(k -> !(k in (:interpolant, :weights)) && !(x isa PulseSequenceRecipe && k===:duration), fields)
 end
 function _parameter_leaves!(result, x, path;skip_duration=false)
     x isa _ShapePayload && return result
     if x isa _PulseObject || x isa NamedTuple
         for k in (x isa NamedTuple ? keys(x) : _pulse_fields(x))
             skip_duration && k===:duration && continue
-            owned_child=(x isa Pulse && k===:envelope) || (x isa Segment && k===:shape)
+            owned_child=(x isa PulseRecipe && k===:envelope) || (x isa Segment && k===:shape)
             _parameter_leaves!(result,getproperty(x,k),isempty(path) ? string(k) : "$path/$k";skip_duration=owned_child)
         end
     elseif x isa Union{Tuple,AbstractVector}
@@ -159,10 +159,11 @@ function _parameter_leaves!(result, x, path;skip_duration=false)
 end
 """All explicit pulse fields as slash paths and `(path,value)` pairs, including structural choices."""
 parameters(x::_ShapePayload)=throw(ArgumentError("Normalized payload fields are internal; discover physical parameters on its Envelope"))
-parameters(x::_PulseObject) = _parameter_leaves!(Dict{String,Tuple}(), x, "")
+_discovered_parameters(x) = _parameter_leaves!(Dict{String,Tuple}(), x, "")
+parameters(x::_PulseObject) = _discovered_parameters(x)
 """Discover numeric candidates and symbolic offset references; excludes Boolean and sample-count configuration. Symbolic references are not numeric optimizer variables."""
 function calibration_parameters(x::_PulseObject)
-    return filter(parameters(x)) do entry
+    return filter(_discovered_parameters(x)) do entry
         path, (_, value) = entry
         parts = split(path, '/')
         parent = length(parts) == 1 ? x : getpath(x, join(parts[1:(end-1)], '/'))
@@ -190,13 +191,13 @@ function _rebuild_pulse_node(object, replacements::NamedTuple)
         edits=Base.structdiff(replacements,(duration=nothing,))
         isempty(edits) && d!==nothing && return _stretch_envelope(object,d)
         return LegacyEnvelope(object.implementation,merge(object.fields,edits),d)
-    elseif object isa Pulse
+    elseif object isa PulseRecipe
         e = value(:envelope)
         d = haskey(replacements,:duration) ? replacements.duration : _envelope_duration(e)
-        return Pulse(e,value(:carrier),value(:amplitude),value(:offset),d,value(:delay))
-    elseif object isa PulseSequence
+        return PulseRecipe(e,value(:carrier),value(:amplitude),value(:offset),d,value(:delay))
+    elseif object isa PulseSequenceRecipe
         all(k->k in (:pulses,:offset,:delay),keys(replacements)) || throw(ArgumentError("PulseSequence duration is derived"))
-        return PulseSequence(value(:pulses)...;offset=value(:offset),delay=value(:delay))
+        return PulseSequenceRecipe(value(:pulses)...;offset=value(:offset),delay=value(:delay))
     elseif object isa EnvelopeSequence
         all(k->k===:segments,keys(replacements)) || throw(ArgumentError("EnvelopeSequence duration is derived; edit segment durations"))
         return EnvelopeSequence(value(:segments)...)
@@ -255,8 +256,8 @@ function _pulse_update_tree(object, changes)
             filter!(c->!(first(c)==[:duration] || first(c)==["duration"]),grouped[:shape])
         end
     end
-    if object isa Union{Pulse,Segment} && haskey(grouped,:duration)
-        childkey=object isa Pulse ? :envelope : :shape
+    if object isa Union{PulseRecipe,Segment} && haskey(grouped,:duration)
+        childkey=object isa PulseRecipe ? :envelope : :shape
         child=getproperty(object,childkey)
         if child isa Envelope
             dchanges=grouped[:duration]
@@ -282,3 +283,38 @@ function _pulse_update_tree(object, changes)
     end
     return _rebuild_pulse_node(object,(;direct...))
 end
+
+parameters(p::Pulse) = getfield(p,:parameters)
+calibration_parameters(p::Pulse) = calibration_parameters(p.recipe)
+function setpath(p::Pulse,path::AbstractString,value)
+    first(_path_keys(path)) in (:recipe,:parameters,:f) && throw(ArgumentError("compiled pulse caches are read-only"))
+    return Pulse(setpath(p.recipe,path,value))
+end
+function _replace_property(p::Pulse,key::Symbol,value)
+    key in (:recipe,:parameters,:f) && throw(ArgumentError("compiled pulse caches are read-only"))
+    return Pulse(_replace_property(p.recipe,key,value))
+end
+_pulse_update_tree(p::Pulse,changes) = isempty(changes) ? p : Pulse(_pulse_update_tree(p.recipe,changes))
+function _physical_tree(x)
+    x isa LegacyEnvelope && return _physical_tree(x.fields)
+    x isa Envelope && return _physical_tree(_physical_parameters(x.shape,x.duration))
+    x isa EnvelopeSequence && return (segments=map(s -> (shape=_physical_tree(s.shape),duration=s.duration,scale=s.scale),x.segments),)
+    x isa NamedTuple && return map(_physical_tree,x)
+    x isa Union{Tuple,AbstractVector} && return Tuple(_physical_tree(v) for v in x)
+    x isa AbstractDict && return freeze_recipe_value(x)
+    return x
+end
+function _parameter_tree(p::PulseRecipe)
+    carrier=p.carrier===nothing ? nothing : (frequency=p.carrier.frequency,phase=p.carrier.phase)
+    return (amplitude=p.amplitude,offset=p.offset,duration=p.duration,delay=p.delay,carrier=carrier,envelope=_physical_tree(p.envelope))
+end
+_parameter_tree(p::PulseSequenceRecipe) = (pulses=map(_parameter_tree,p.pulses),offset=p.offset,delay=p.delay)
+
+function _flat_physical_parameters(tree,recipe=nothing)
+    entries=_numeric_parameter_dict(tree)
+    filter!(entry -> recipe===nothing || (!_structural_pulse_parameter(recipe,split(first(entry),'/')) && !_derived_pulse_path(recipe,split(first(entry),'/'))),entries)
+    paths=sort!(collect(keys(entries)))
+    names=Tuple(Symbol(k) for k in paths)
+    return NamedTuple{names}(Tuple(entries[k] for k in paths))
+end
+parameters(p::AbstractPulseRecipe) = _flat_physical_parameters(_parameter_tree(p),p)

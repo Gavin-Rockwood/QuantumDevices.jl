@@ -55,6 +55,7 @@ struct CalibrationProblem{P,R,S,T,O,E,B,D,K}
 end
 
 include("parameterization.jl")
+include("evaluation.jl")
 
 # Resolve every output before reconstructing any physical pulse node.
 function _candidate_recipe(start::GateRecipe,coordinates::Tuple,parameterization::NamedTuple,values)
@@ -100,6 +101,8 @@ A custom objective has contract `objective(target_matrix, projected_matrix)`.
 `evolution_settings` forwards to `evolve`, including `remove_vacuum=true` for a
 constant reference-vacuum energy origin (default false). This setting is captured
 for both candidate and accepted-result reevaluation, not passed to either solver.
+Solver `params` is reserved for trial pulse values; callbacks must not assume a
+public `integrator.p` layout.
 `adtype` and native `function_kwargs` (e.g. `grad`, `hess`, `cons`) construct the
 SciML OptimizationFunction. Remaining keywords construct OptimizationProblem.
 `solve` forwards the chosen backend and solve options unchanged, returning a CalibrationResult containing its
@@ -124,7 +127,7 @@ function _calibration_model(prepared::PreparedGate, model::NumericalModel)
     required = union((refs(expression,:param) for expression in expressions)...)
     all(control -> control.target in required,gate.controls) ||
         throw(ArgumentError("control target must appear in replacement model Hamiltonian or gate terms"))
-    foreach(control -> _resolve_pulse(control.pulse,values),gate.controls)
+    foreach(control -> _resolve_reference_tree(control.pulse.recipe,_parameter_tree(control.pulse.recipe),values),gate.controls)
     for expression in expressions, (word,_) in physical_terms(expression)
         haskey(model.operator_products,word) || throw(ArgumentError(
             "complete operator product $word is not cached in replacement model; rebuild that model with the gate terms"))
@@ -170,15 +173,21 @@ function _calibration_problem(prepared::PreparedGate,selection,target;symbolic::
     size(T,1)==length(selections) || throw(DimensionMismatch("target does not match ordered states"))
     settings = deepcopy(merge((;remove_vacuum=false), (;evolution_settings...)))
     haskey(settings,:states) && throw(ArgumentError("pass states at CalibrationProblem construction, not inside evolution_settings"))
+    haskey(settings,:params) && throw(ArgumentError("calibration owns solver runtime params for pulse values; evolution_settings.params is unsupported"))
     settings.remove_vacuum isa Bool || throw(ArgumentError("evolution_settings.remove_vacuum must be a Bool"))
     derivative_settings = capture_derivative_settings(adtype,function_kwargs)
-    rebuild = values -> _candidate_recipe(captured.recipe,coordinates,parameterization,values)
+    rebuild_only=any(paths) do path
+        index,_,keys=_gate_control_path(captured.recipe.controls,path)
+        _rebuild_only_parameter(captured.recipe.controls[index].pulse,keys)
+    end
+    parameterization=merge(parameterization,(runtime_mode=rebuild_only ? :rebuild_candidate : :scalar_parameters,))
+    updates=_compile_parameter_updates(coordinates,parameterization)
+    prepare_candidate = rebuild_only ? (values -> _prepare_rebuild_candidate(captured,updates(values))) : updates
+    evaluate = _calibration_evaluator(captured,reference,selections;paths=rebuild_only ? nothing : paths,settings...)
     loss = function(values,_)
         length(values)==length(coordinates) || throw(DimensionMismatch("wrong parameter count"))
-        recipe = rebuild(values)
-        candidate = PreparedGate(recipe,captured.model,captured.terms,captured.parameters,captured.context)
-        result = evolve(candidate;states=selections,settings...)
-        value = objective(T,gate_matrix(result))
+        candidate = prepare_candidate(values)
+        value = objective(T,evaluate(candidate))
         value isa Real && isfinite(value) || throw(ArgumentError("objective must return a finite real scalar"))
         return value
     end
@@ -208,3 +217,6 @@ end
 include("CalibrationResult.jl")
 include("QuantumGate.jl")
 include("display.jl")
+
+# The isolated bandwidth route rebuilds cached DPSS weights once per candidate.
+_prepare_rebuild_candidate(prepared,updates) = _update_gate_pulses(prepared.recipe,collect(pairs(updates)))

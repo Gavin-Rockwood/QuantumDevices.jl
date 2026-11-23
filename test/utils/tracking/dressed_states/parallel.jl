@@ -9,10 +9,12 @@
     # pool and exception behavior, without depending on eigenvector phases.
     samples = zeros(Int, 7)
     tasks = Vector{Task}(undef, 7)
+    caller_task = current_task()
+    workers = min(7, Threads.nthreads(:default))
     QuantumDevices.foreach_dressing_sample(7, typemax(Int)) do index
         samples[index] = index
         tasks[index] = current_task()
-        @test Threads.threadpool() == :default
+        @test workers == 1 ? current_task() === caller_task : Threads.threadpool() == :default
     end
     @test samples == collect(1:7)
     @test length(unique(tasks)) == min(7, Threads.nthreads(:default))

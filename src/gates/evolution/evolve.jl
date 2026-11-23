@@ -21,13 +21,10 @@ selected global energy origin. Reference `idle_phases` diagnostics keep the
 original reference energies; `result.solver.vacuum_energy` records the removed
 global offset.
 """
-function evolve(prepared::PreparedGate; states=nothing, saveat=nothing, tstops=Real[], herm_check=1e-9, remove_vacuum::Bool=false, energy_shift=0, kwargs...)
-    duration = prepared.recipe.duration
+function evolve(prepared::PreparedGate; free_parameters=(),params=nothing,states=nothing, saveat=nothing, tstops=Real[], herm_check=1e-9, remove_vacuum::Bool=false, energy_shift=0, kwargs...)
+    runtime = _prepare_gate_runtime(prepared.recipe,prepared.parameters,free_parameters,params)
+    duration = runtime.duration
     isfinite(duration) && duration > 0 || throw(ArgumentError("Evolution duration must be finite and positive"))
-    for key in (:save_idxs, :e_ops)
-        haskey(kwargs,key) && throw(ArgumentError("$key is incompatible with storing physical propagators"))
-    end
-    get(kwargs,:save_end,true) || throw(ArgumentError("Gate evolution requires save_end=true"))
     reference = _gate_reference(prepared.model)
     inputs = isnothing(states) ? nothing : _gate_kets(reference,states)
     initial = isnothing(inputs) ? _reference_identity(reference) : _gate_columns(inputs)
@@ -41,19 +38,10 @@ function evolve(prepared::PreparedGate; states=nothing, saveat=nothing, tstops=R
             throw(ArgumentError("energy_shift must be :auto or a finite real GHz offset"))
         energy_shift
     end
-    saves = isnothing(saveat) ? [duration] : saveat isa Real ?
-        (isfinite(saveat) && saveat > 0 ? collect(0:saveat:duration) : throw(ArgumentError("saveat spacing must be finite and positive"))) : float.(collect(saveat))
-    all(t -> t isa Real && isfinite(t) && 0<=t<=duration,saves) || throw(ArgumentError("saveat times must be finite and within the gate duration"))
-    issorted(saves) && allunique(saves) || throw(ArgumentError("saveat times must be increasing and unique"))
-    isempty(saves) || last(saves)==duration || push!(saves,duration)
-    isempty(saves) && push!(saves,duration)
-    stops = collect(tstops)
-    all(t -> t isa Real && isfinite(t) && 0<=t<=duration,stops) || throw(ArgumentError("tstops must lie within the gate duration"))
-    stops = sort!(unique(vcat(stops,pulse_tstops(prepared))))
-    options = merge((;progress_bar=false,save_start=(0 in saves),save_end=true), (;kwargs...), (;saveat=saves,tstops=stops))
-    hamiltonian = 2pi*make_hamiltonian(prepared;herm_check,remove_vacuum)
+    options = _gate_solver_options(prepared.recipe,duration;saveat,tstops,runtime_stops=runtime.stops,kwargs...)
+    hamiltonian = 2pi*make_hamiltonian(prepared;free_parameters,herm_check,remove_vacuum)
     iszero(shift) || (hamiltonian = hamiltonian - 2pi*shift*_reference_identity(reference))
-    solution = sesolve(hamiltonian,initial,[zero(duration),duration];options...)
+    solution = sesolve(deepcopy(hamiltonian),initial,[zero(duration),duration];params=runtime.runtime,options...)
     SciMLBase.successful_retcode(solution.retcode) || error("Gate evolution failed with return code $(solution.retcode)")
     isempty(solution.states) && error("Gate evolution saved no propagators")
     last(solution.times_states)==duration || error("Gate evolution did not save the final propagator")
@@ -62,7 +50,27 @@ function evolve(prepared::PreparedGate; states=nothing, saveat=nothing, tstops=R
             rmul!(propagator.data,cis(-2pi*shift*time))
         end
     end
-    return GateEvolution(deepcopy(prepared.recipe),reference,inputs,collect(solution.times_states),
-        solution.states,(;options,remove_vacuum,vacuum_energy,energy_shift=shift,retcode=solution.retcode,alg=solution.alg,
+    effective = _effective_runtime_recipe(prepared.recipe,runtime.resolved)
+    return GateEvolution(effective,reference,inputs,collect(solution.times_states),
+        solution.states,(;options,runtime_parameters=copy(runtime.runtime),remove_vacuum,vacuum_energy,energy_shift=shift,retcode=solution.retcode,alg=solution.alg,
             abstol=solution.abstol,reltol=solution.reltol))
+end
+
+# Shared save/stop validation for ordinary evolution and calibration trials.
+function _gate_solver_options(recipe,duration;runtime_stops=nothing,saveat=nothing,tstops=Real[],kwargs...)
+    for key in (:save_idxs, :e_ops)
+        haskey(kwargs,key) && throw(ArgumentError("$key is incompatible with storing physical propagators"))
+    end
+    get(kwargs,:save_end,true) || throw(ArgumentError("Gate evolution requires save_end=true"))
+    saves = isnothing(saveat) ? [duration] : saveat isa Real ?
+        (isfinite(saveat) && saveat > 0 ? collect(0:saveat:duration) : throw(ArgumentError("saveat spacing must be finite and positive"))) : float.(collect(saveat))
+    all(t -> t isa Real && isfinite(t) && 0<=t<=duration,saves) || throw(ArgumentError("saveat times must be finite and within the gate duration"))
+    issorted(saves) && allunique(saves) || throw(ArgumentError("saveat times must be increasing and unique"))
+    isempty(saves) || last(saves)==duration || push!(saves,duration)
+    isempty(saves) && push!(saves,duration)
+    stops = collect(tstops)
+    all(t -> t isa Real && isfinite(t) && 0<=t<=duration,stops) || throw(ArgumentError("tstops must lie within the gate duration"))
+    stops = sort!(unique(vcat(stops,isnothing(runtime_stops) ? pulse_tstops(recipe) : runtime_stops)))
+    options = merge((;progress_bar=false,save_start=(0 in saves),save_end=true), (;kwargs...), (;saveat=saves,tstops=stops))
+    return options
 end

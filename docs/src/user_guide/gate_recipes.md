@@ -24,8 +24,9 @@ to the desired baseline; it is not automatically added to the idle value. Named
 controls must have distinct names and targets. Compose pulse contributions inside
 one pulse or envelope when they share a target. Uncontrolled parameters keep
 resolved recipe values, with explicit build parameters taking precedence.
-Runtime `p` in the returned `QobjEvo` is ignored: pulses and fixed values are
-captured at build time. Without controls, `make_hamiltonian(prepared)` returns a static
+By default the returned `QobjEvo` ignores runtime `p` and uses captured values;
+the `free_parameters` keyword enables selected physical pulse paths at runtime, as
+described below. Without controls, `make_hamiltonian(prepared)` returns a static
 `QuantumObject`.
 
 Duration defaults to the latest control end, including delays and sequence gaps.
@@ -199,3 +200,34 @@ physical control blocks, optimizer coordinates/bounds, and captured fit/validati
 status. `print` uses a bounded one-line summary. A QuantumGate shows its current
 working recipe separately from its saved calibration. Printing performs no build,
 evolution or validation; `result.solution` retains the backend's own display.
+
+## Reusing a Hamiltonian with scalar pulse parameters
+
+Select the numeric pulse fields when compiling; repeated solves use an ordinary
+dictionary containing exactly the selected canonical string keys:
+
+```julia
+H = make_hamiltonian(prepared; free_parameters=("drive/amplitude", "drive/duration"))
+params = Dict("drive/amplitude" => 0.2, "drive/duration" => 20.)
+solution = sesolve(H, initial, times; params=params)
+```
+
+The same keyword works with `make_hamiltonian(model, gate)` and
+`make_hamiltonian(device, gate)`; the device overload builds once. Reference
+assignments in `parameters=` remain physical model assignments. All selected
+runtime keys are required. Aliases are canonicalized once and duplicates throw.
+No hidden derived keys or positional parameter conversion is needed. Nonlinear
+Hamiltonian expressions retain products, powers, and adjoints of control values.
+
+Duration-only selection stretches unselected physical widths; selecting a width
+as well makes it independent. Sequence placements and total duration follow the
+same compiled relationships. Structural choices, derived durations, Slepian
+bandwidth, and custom callback state are not scalar runtime selectors.
+
+Direct `sesolve` callers supply valid physical parameter combinations and their
+own integration interval and pulse stops. Runtime timing values are constant for
+one solve. `evolve(prepared; free_parameters=paths, params=params)` validates the
+final fields together and prepares timing once before solving. Its returned
+recipe records effective physical values; `result.solver.runtime_parameters`
+records the selected canonical values. Each library solve owns its mutable
+Hamiltonian workspace.

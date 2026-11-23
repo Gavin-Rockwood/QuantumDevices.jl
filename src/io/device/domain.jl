@@ -69,11 +69,14 @@ function _domain_record(x,w,path)
         x isa InputBinding && (fields["scope"]=Dict("tag"=>"scope","id"=>_scope(w,x.scope)))
         return Dict("tag"=>"domain","kind"=>name,"fields"=>fields)
     end
+    if x isa Pulse
+        return Dict("tag"=>"pulse","version"=>3,"id"=>"pulse","fields"=>Dict("recipe"=>_encode_record(x.recipe,w,path*"/recipe")))
+    end
     if x isa _PulseObject
-        id=findfirst(T->x isa T,_PULSE_IMPLEMENTATIONS)
+        id=x isa PulseSequenceRecipe ? :pulse_sequence_recipe : findfirst(T->x isa T,_PULSE_IMPLEMENTATIONS)
         isnothing(id) && return _custom_record(x,w,path)
         fields=Dict(String(k)=>_encode_record(getproperty(x,k),w,"$path/$k") for k in _pulse_storage_fields(x))
-        return Dict("tag"=>"pulse","version"=>2,"id"=>String(id),"fields"=>fields)
+        return Dict("tag"=>"pulse","version"=>3,"id"=>String(id),"fields"=>fields)
     end
     return _custom_record(x,w,path)
 end

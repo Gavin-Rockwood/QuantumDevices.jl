@@ -36,7 +36,7 @@ function regenerate() {
   generator = spawn('julia', ['--startup-file=no', '--project=docs', 'docs/make.jl'], {
     cwd: root,
     stdio: 'inherit',
-    env: { ...process.env, DOCS_DRAFT: 'true', DOCS_MARKDOWN_ONLY: 'true', DOCS_DEPLOY: 'false' },
+    env: { ...process.env, DOCS_DRAFT: 'true', DOCS_MARKDOWN_ONLY: 'true', DOCS_DEPLOY: 'false', DOCS_RUN_TUTORIALS: 'false', DOCS_EXECUTION: 'changed' },
   })
   generator.on('error', error => { console.error(error.message); stop(1) })
   generator.on('exit', code => {

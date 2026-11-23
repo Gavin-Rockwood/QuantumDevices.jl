@@ -161,6 +161,14 @@ It changes only the global origin and leaves default gate infidelity unchanged.
 forwarded to optimizer or native ODE-solver keywords. Target inputs belong in the
 constructor's `states`, not inside `evolution_settings`.
 
+The problem compiles its fixed Hamiltonian matrices and coefficient functions once.
+Each objective evaluation passes new pulse values through the `QobjEvo` runtime
+parameters and updates pulse stops and duration. It reuses the captured input and
+output basis; accepted results still materialize a concrete recipe for ordinary
+reevaluation. `evolution_settings.params` is reserved for calibration's trial pulse
+values and is rejected. Solver callbacks must not assume a public `integrator.p`
+layout. Ordinary `evolve` retains its solver `params` forwarding behavior.
+
 ## Continue a fit
 
 ```julia
@@ -272,3 +280,17 @@ integrality and constraint bounds reset unless supplied. Symbolic replacements m
 supply variables and links together. Model replacement retains mappings/fitted values
 and existing state-key/basis safeguards. Native solution identity, default/explicit
 backends, validation and guarded QuantumGate adoption retain their existing contracts.
+
+Ordinary analytic calibration compiles the Hamiltonian and symbolic parameter
+links once. Each candidate resolves all linked fields simultaneously, validates
+final geometry, and prepares timing before solving with canonical scalar runtime
+parameters. Candidate pulse objects are materialized only for requested recipes
+and accepted-result provenance. A custom objective keeps the signature
+`objective(target_matrix, projected_matrix)`.
+
+Slepian bandwidth, legacy physical envelope fields, and explicit custom callback
+state use the isolated candidate rebuilding route: affected definitions and cached
+weights are prepared once per candidate, outside the solver callbacks. Inspect
+`problem.parameterization.runtime_mode` (`:scalar_parameters` or
+`:rebuild_candidate`) to distinguish these modes. This route preserves calibration
+capability without implying that such fields support public scalar runtime binding.

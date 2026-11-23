@@ -40,7 +40,7 @@ module QuantumDevices
     export graph
 
     include("gates/pulses/pulses.jl")
-    export AbstractPulse, Pulse, PulseSequence, AbstractEnvelope, Envelope, InterpolatedEnvelope
+    export AbstractPulse, AbstractPulseRecipe, PulseRecipe, PulseSequenceRecipe, Pulse, PulseSequence, pulse_duration, AbstractEnvelope, Envelope, InterpolatedEnvelope
     export EnvelopeSequence, Segment, Constant, Gaussian, GaussianZero, GaussianSquare
     export SineSquared, Cosine, Blackman, Sech, Bump, DRAG, Slepian, ErfSquare, RampedFlattop
     export pulse_tstops, envelope_tstops, parameters, calibration_parameters, getpath, setpath, haspath

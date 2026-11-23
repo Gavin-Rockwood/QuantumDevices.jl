@@ -53,14 +53,62 @@ DOCS_RUN_TUTORIALS=true julia --startup-file=no --project=docs docs/make.jl
 npm --prefix docs run docs:preview
 ```
 
-This explicitly runs the original-size models, long trajectories, scans and
-calibrations. `DOCS_RUN_TUTORIALS=true` cannot be combined with `DOCS_DRAFT=true`:
-draft mode skips examples, so the build rejects that combination. The default
-build remains inexpensive and includes only the small waveform tutorial plots.
-The earlier shortened archives remain unchanged in `docs/tutorials`.
+This runs the original-size models, long trajectories, scans and calibrations.
+Each entire tutorial executes in its own Literate context. Its rendered code,
+outputs and figures are cached independently under `docs/.execution-cache`, outside
+`docs/build`. Subsequent full builds reuse current results and execute only missing
+or stale tutorials. Cached pages contain ordinary code and output blocks, so
+Documenter renders them without executing them again. Guide `@example` blocks and
+doctests still execute normally; this cache covers only the two full tutorials.
+
+Choose an execution mode explicitly when needed:
+
+```sh
+# Reuse current full tutorial results; execute missing or changed tutorials.
+DOCS_RUN_TUTORIALS=true DOCS_EXECUTION=changed julia --startup-file=no --project=docs docs/make.jl
+# Execute both complete tutorials, even when their cached results are current.
+DOCS_RUN_TUTORIALS=true DOCS_EXECUTION=refresh julia --startup-file=no --project=docs docs/make.jl
+# Preview available results without executing tutorials, guides or doctests.
+DOCS_EXECUTION=preview julia --startup-file=no --project=docs docs/make.jl
+```
+
+`changed` is the default mode. `refresh` requires `DOCS_RUN_TUTORIALS=true` to
+request full execution. Preview selects full cached results even without that
+flag, labels every tutorial **current**, **stale**, or **missing**, and shows source
+without outputs when no complete result exists. Preview uses Documenter's draft
+mode, skips all examples and doctests, and cannot deploy. A preview is an editing
+artifact, not a validated production build.
+
+Cache fingerprints include tutorial source, all package `src` files, root and docs
+projects/manifests, resolved dependency versions/tree identities, Julia version,
+thread/environment settings and execution-helper source. Paths inside this checkout
+are normalized in environment files; absolute paths to external developed packages
+can still make cache identities machine-specific. Edits inside external developed
+dependencies are not detected automatically; declare those inputs or refresh after
+changing them. Declare any additional included
+source or data files in `TUTORIAL_INPUTS` in `docs/make.jl`, relative to the repository
+root. This declaration hashes contents; code must still resolve its own input paths. Literate executes with the temporary
+output directory as its working directory and as the location of `@__DIR__`; the
+current tutorials have no included source or data files. Changes to inputs during execution reject the result.
+A failed execution leaves the last good cache available for explicit preview but
+fails the full build. Each successful generation is committed atomically, with
+checksums for its rendered Markdown and assets. Old generations remain available
+locally; remove `docs/.execution-cache` to clear them all.
+
+`DOCS_RUN_TUTORIALS=true` cannot be combined with `DOCS_DRAFT=true` except in
+preview mode. The default build remains inexpensive and includes only the small
+waveform tutorial plots; cheap outputs never count as completed full executions.
+
+Run the small cache and rendering checks without executing the real tutorials:
+
+```sh
+julia --startup-file=no --project=docs docs/test/tutorial_cache.jl
+julia --startup-file=no --project=docs docs/test/tutorial_render.jl
+```
 
 `docs:dev` watches `docs/src` and active tutorial Julia sources and regenerates Markdown in Documenter's draft mode
-before refreshing the browser. Julia formats the documentation, but examples and
+before refreshing the browser. The watcher always uses the inexpensive tutorial
+mode, regardless of inherited full-execution flags. Julia formats the documentation, but examples and
 doctests do not execute; calculated outputs and plots are omitted. Save a source
 file and allow generation to finish before expecting the update. Stop with Ctrl+C.
 From inside `docs/`, use `npm run docs:dev` instead.

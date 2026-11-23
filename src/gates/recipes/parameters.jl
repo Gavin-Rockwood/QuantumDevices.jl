@@ -2,12 +2,16 @@ _gate_real(value) = value isa Real && !(value isa Bool) && concrete_parameter_va
 
 # Resolve aliases to real constructor fields; paths remain local to a control.
 function _canonical_pulse_path(object, keys)
+    object isa Pulse && return _canonical_pulse_path(object.recipe,keys)
     isempty(keys) && return String[]
     key = first(keys)
-    if object isa Pulse && length(keys)>=2 && key=="envelope" && keys[2]=="duration"
+    if object isa PulseRecipe && length(keys)>=2 && key=="envelope" && keys[2]=="duration"
         return vcat(["duration"],String.(keys[3:end]))
     elseif object isa Segment && length(keys)>=2 && key=="shape" && keys[2]=="duration"
         return vcat(["duration"],String.(keys[3:end]))
+    end
+    if object isa Segment && !(key in ("shape","duration","scale"))
+        return vcat(["shape"],_canonical_pulse_path(object.shape,keys))
     end
     if !hasproperty(object,Symbol(key)) && !(object isa Union{NamedTuple,Tuple,AbstractArray,AbstractDict}) && hasproperty(object,:parameters)
         return vcat(["parameters"],_canonical_pulse_path(object.parameters,keys))
@@ -24,9 +28,10 @@ function _gate_control_path(controls, path::AbstractString)
     return index, join(vcat([string(controls[index].name)],localpath),'/'), localpath
 end
 function _derived_pulse_path(pulse, keys)
+    pulse isa Pulse && return _derived_pulse_path(pulse.recipe,keys)
     isempty(keys) && return false
     key = Symbol(first(keys))
-    (key === :duration && (pulse isa Union{PulseSequence,EnvelopeSequence} || pulse isa Pulse && pulse.envelope isa EnvelopeSequence || pulse isa Segment && pulse.shape isa EnvelopeSequence)) && return true
+    (key === :duration && (pulse isa Union{PulseSequenceRecipe,EnvelopeSequence} || pulse isa PulseRecipe && pulse.envelope isa EnvelopeSequence || pulse isa Segment && pulse.shape isa EnvelopeSequence)) && return true
     return length(keys)>1 && _derived_pulse_path(_get(pulse,key),keys[2:end])
 end
 function _gate_numeric_leaf(controls,path)

@@ -102,7 +102,8 @@
     @test !hasproperty(restored.artifacts[:basis],:H)
     fresh=joinpath(dirname(folder),"fresh.jl")
     write(fresh,"using QuantumDevices, Test\ng=get_gate(load_device(ARGS[1]),:analysis)\n@test g.artifacts[:basis] isa FloquetBasis\n@test isfinite(stark_shift(g.artifacts[:resonance]))\n")
-    @test success(pipeline(`$(Base.julia_cmd()) --threads=2,0 --compiled-modules=existing --project=$(pkgdir(QuantumDevices)) $fresh $folder`;stdout=devnull))
+    # Inherit the resolved test environment, including fresh consumer installs.
+    @test success(pipeline(`$(Base.julia_cmd()) --threads=2 --compiled-modules=existing --project=$(dirname(Base.active_project())) $fresh $folder`;stdout=devnull))
 end
 
 # Additional current fit contracts retained from the old spectral-tool suite.

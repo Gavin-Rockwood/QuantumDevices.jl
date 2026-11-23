@@ -55,6 +55,14 @@ function residual_coefficient_function(expression, free, auto_time_dependence)
         ((p,t) -> compiled((p[v] for v in variables)...))
 end
 
+# Bound gate target accessors retain nonlinear residual arithmetic unchanged.
+function residual_coefficient_function(expression,free,bindings::AbstractDict)
+    variables=sort!([v for v in free if v in Symbolics.get_variables(expression)];by=string)
+    compiled=Symbolics.build_function(expression,variables...;expression=Val(false))
+    accessors=Tuple(bindings[v] for v in variables)
+    return (p,t) -> compiled(map(f -> f(p,t),accessors)...)
+end
+
 # Use QuantumToolbox's QuantumObject norm directly (trace norm for operators).
 hermiticity_cleanup(operator, threshold) =
     norm(operator - operator') < threshold ? 0.5 * (operator + operator') : operator
@@ -76,7 +84,7 @@ end
 # Static contributions accumulate unscaled; dynamic matrices absorb scalar once.
 function compile_hamiltonian(term_list,products,values,free,identity;
     scalar::Number=1,herm_check=DEFAULT_HERM_CHECK,auto_time_dependence=true,runtime_parameters=nothing,
-    energy_shift::Number=0)
+    energy_shift::Number=0,coefficient_bindings=nothing)
     herm_check isa Real && concrete_parameter_value(herm_check) && herm_check >= 0 ||
         throw(ArgumentError("herm_check must be a finite nonnegative real threshold"))
     constant = -energy_shift*identity
@@ -91,7 +99,7 @@ function compile_hamiltonian(term_list,products,values,free,identity;
             constant += factor*operator
         else
             matrix = hermiticity_cleanup((scalar*factor)*operator,herm_check)
-            callback = residual_coefficient_function(residual,free,auto_time_dependence)
+            callback = residual_coefficient_function(residual,free,isnothing(coefficient_bindings) ? auto_time_dependence : coefficient_bindings)
             if !isnothing(runtime_parameters)
                 residual_callback = callback
                 callback = (p,t)->residual_callback(runtime_parameters,t)

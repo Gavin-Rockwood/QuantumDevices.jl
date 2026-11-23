@@ -1,6 +1,6 @@
 # # Transmon–resonator control
 #
-# We build a coupled transmon and resonator, calibrate the transmon rotations,
+# We build a coupled transmon and resonator, calibrate transmon population transfer,
 # and use a driven sideband to move an excitation into the resonator:
 #
 # $$|g,0\rangle\xrightarrow{\pi_{ge}}|e,0\rangle
@@ -116,27 +116,28 @@ control_figure
 # Both columns evolve in the full retained space. `gate_matrix` projects them
 # without renormalizing, preserving leakage and physical relative phases.
 
+population_exchange_cost(target,M) = 1-(abs2(M.data[2,1])+abs2(M.data[1,2]))/2
 x_target = ComplexF64[0 1;1 0]
-evolution_options = (;abstol=1e-8,reltol=1e-8)
+evolution_options = (;abstol=1e-8,reltol=1e-8,energy_shift=:auto)
 ge_pulse = Pulse(shape,ge_frequency;amplitude=0.004573,phase=-pi/2)
 ge_recipe = GateRecipe(recipe;terms=[drive],controls=[Control(:drive,amplitude,ge_pulse)])
 ge_prepared = build(device,ge_recipe)
 ge_trial = evolve(ge_prepared;states=ge_states,saveat=pulse_times,evolution_options...)
 ge_before = [abs2(gate_matrix(ge_trial;step=i).data[2,1]) for i in eachindex(ge_trial.times)]
-ge_trial_loss = gate_infidelity(x_target,gate_matrix(ge_trial))
+ge_trial_loss = population_exchange_cost(x_target,gate_matrix(ge_trial))
 
-# ### Calibrate amplitude, phase and frequency
+# ### Calibrate the amplitude for population exchange
 #
-# Population transfer tests one input. A coherent X also constrains both inputs'
-# relative phases. The current default loss includes leakage; it differs from
-# the historical trace-overlap metric. No interaction-frame inverse is applied.
-# Keep duration and Gaussian width fixed while fitting these three coordinates.
+# The objective averages transfer over both inputs without renormalizing away
+# leakage. It ignores relative phases, so high transfer does not establish a
+# coherent X gate. Keep phase, frequency, duration and Gaussian width fixed.
+# No interaction-frame inverse is applied.
 
-selectors = ["drive/amplitude","drive/carrier/phase","drive/carrier/frequency"]
+selectors = ["drive/amplitude"]
 simplex = OptimizationOptimJL.Optim.AffineSimplexer(a=0.0005,b=0.0005)
 algorithm = NelderMead(initial_simplex=simplex)
 ge_problem = CalibrationProblem(ge_prepared,selectors,x_target;
-    states=ge_states,evolution_settings=evolution_options)
+    states=ge_states,objective=population_exchange_cost,evolution_settings=evolution_options)
 ge_fit = solve(ge_problem,algorithm;maxiters=300,g_abstol=1e-8)
 ge_checked = validate_calibration(ge_fit;save_evolution=true)
 ge_checked.solution.retcode
@@ -164,7 +165,7 @@ ef_prepared = build(device,GateRecipe(recipe;terms=[drive],controls=[Control(:dr
 ef_trial = evolve(ef_prepared;states=ef_states,saveat=pulse_times,evolution_options...)
 ef_before = [abs2(gate_matrix(ef_trial;step=i).data[2,1]) for i in eachindex(ef_trial.times)]
 ef_fit = solve(CalibrationProblem(ef_prepared,selectors,x_target;
-    states=ef_states,evolution_settings=evolution_options),algorithm;maxiters=300,g_abstol=1e-8)
+    states=ef_states,objective=population_exchange_cost,evolution_settings=evolution_options),algorithm;maxiters=300,g_abstol=1e-8)
 ef_checked = validate_calibration(ef_fit)
 ef_after_history = evolve(ef_checked;saveat=pulse_times)
 ef_after = [abs2(gate_matrix(ef_after_history;step=i).data[2,1]) for i in eachindex(ef_after_history.times)]
@@ -201,11 +202,12 @@ resonance_figure
 # `1/(2*minimum_gap)` is a starting estimate; finite ramps change the effective
 # interaction time. No historical numerical shift is asserted here.
 #
-# ## 5. Calibrate the finite sideband pulse's phase
+# ## 5. Calibrate the finite sideband plateau time
 #
-# Retain the original 205.054 ns duration and 10 ns sin² ramps. Population may
-# leave the undriven pair during the plateau and return during ramp-down.
-# A phase-only fit can improve the coherent action while barely changing transfer.
+# Start from the original 205.054 ns duration and retain 10 ns sin² ramps.
+# Fit only the plateau time for population exchange, keeping amplitude, carrier
+# frequency and phase fixed. Population may leave the undriven pair during the
+# plateau and return during ramp-down. This fit does not constrain relative phases.
 
 sideband_duration = 205.05411739244443
 sideband_shape = RampedFlattop(10.;duration=sideband_duration,ramp=:sine_squared)
@@ -214,10 +216,15 @@ sb_prepared = build(device,GateRecipe(recipe;terms=[drive],controls=[Control(:dr
 sb_times = range(0,sideband_duration;length=1001)
 sb_trial = evolve(sb_prepared;states=sideband_states,saveat=sb_times,evolution_options...)
 sb_before = [abs2(gate_matrix(sb_trial;step=i).data[2,1]) for i in eachindex(sb_trial.times)]
-sb_fit = solve(CalibrationProblem(sb_prepared,["drive/carrier/phase"],x_target;
-    states=sideband_states,evolution_settings=evolution_options),algorithm;maxiters=300,g_abstol=1e-8)
+sb_plateau_time = Symbolics.variable(:sb_plateau_time)
+sb_links = Dict("drive/duration"=>sb_plateau_time+20.,
+    "drive/envelope/rise_time"=>10.,"drive/envelope/fall_time"=>10.)
+sb_fit = solve(CalibrationProblem(sb_prepared,x_target;
+    variables=[sb_plateau_time=>sideband_duration-20.],links=sb_links,
+    states=sideband_states,objective=population_exchange_cost,evolution_settings=evolution_options),algorithm;maxiters=300,g_abstol=1e-8)
 sb_checked = validate_calibration(sb_fit)
-sb_after_history = evolve(sb_checked;saveat=sb_times)
+sb_after_times = range(0,sb_checked.recipe.duration;length=1001)
+sb_after_history = evolve(sb_checked;saveat=sb_after_times)
 sb_after = [abs2(gate_matrix(sb_after_history;step=i).data[2,1]) for i in eachindex(sb_after_history.times)]
 sb_figure = Figure(size=(720,300))
 ax = Axis(sb_figure[1,1];xlabel="Time (ns)",ylabel="Target population",title="Sideband f,0 ↔ g,1")

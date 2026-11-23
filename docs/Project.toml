@@ -12,9 +12,8 @@ LiveServer = "16fef848-5104-11e9-1b77-fb7a48bbb589"
 QuantumDevices = "2922de0c-2856-4bd8-898b-94dde52865ea"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 
-SecondQuantizedAlgebra = "f7aa4685-e143-4cb6-a7f3-073579757907"
-
 [compat]
+julia = "1.11"
 Documenter = "1"
 DocumenterVitepress = "0.1"
 Literate = "2"
@@ -26,4 +25,3 @@ OptimizationOptimJL = "0.4"
 
 [sources]
 QuantumDevices = {path = ".."}
-SecondQuantizedAlgebra = {rev = "sqa-issue-268", url = "https://github.com/Gavin-Rockwood/SecondQuantizedAlgebra.jl"}
