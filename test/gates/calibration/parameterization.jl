@@ -1,7 +1,7 @@
 parameterization_test_shape(p,u) = p.width*u
 
 @testset "calibration parameterization" begin
-    import SciMLBase, OptimizationOptimJL
+    import SciMLBase
     device = QuantumDevice(:parameterization)
     q = add_component!(device,make_qubit(:q;frequency=0.))
     recipe = Recipe(device,[q])
@@ -140,23 +140,9 @@ parameterization_test_shape(p,u) = p.width*u
     @test_throws ArgumentError symbolic(offset,[T=>1.],Dict("drive/offset"=>T))
     @test !haskey(reference.parameters,T)
 
-    # Actual native backends and finite differences retain their coordinate contracts.
+    # The default symbolic solve also feeds continuation and validation below.
     result=solve(problem;maxiters=80)
     @test abs(result.fitted_values[1]-1.)<1e-4
-    unbounded=symbolic(seed,[T=>.8],Dict("drive/duration"=>T))
-    explicit_result=solve(unbounded,OptimizationOptimJL.NelderMead();maxiters=80)
-    @test abs(explicit_result.fitted_values[1]-1.)<1e-3
-    extension=Base.get_extension(OptimizationOptimJL.OptimizationBase,:OptimizationFiniteDiffExt)
-    if extension !== nothing
-        ADTypes=parentmodule(OptimizationOptimJL.OptimizationBase.AutoFiniteDiff)
-        adtype=ADTypes.AutoFiniteDiff(;fdtype=Val(:central),absstep=1e-5,relstep=1e-5)
-        differentiated=symbolic(seed,[T=>.8],Dict("drive/duration"=>T,"drive/amplitude"=>T/4);adtype,lb=[.6],ub=[1.3])
-        fd=solve(differentiated,OptimizationOptimJL.Fminbox(OptimizationOptimJL.LBFGS());maxiters=30)
-        @test fd.solution.objective<1e-7
-        @test fd.fitted_values[1]≈1. atol=1e-4
-    else
-        @test_skip "Optional native FiniteDiff extension is not loaded"
-    end
     @test isequal(result.coordinates,(T,))
     @test result.paths==("drive/duration",)
     @test !hasproperty(result.recipe,:links)

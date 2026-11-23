@@ -36,11 +36,11 @@ end
 
 function Base.getproperty(device::QuantumDevice, name::Symbol)
     if name === :parameters
-        declarations = device_parameters(device)
-        validate_default_sources(device_default_sources(device))
-        return Dict{Num,Number}(declarations)
+        return device_parameter_view(device)
+    elseif name === :variables
+        return device_variables(device)
     end
     return getfield(device,name)
 end
 
-Base.propertynames(::QuantumDevice, private::Bool=false) = (fieldnames(QuantumDevice)..., :parameters)
+Base.propertynames(::QuantumDevice, private::Bool=false) = (fieldnames(QuantumDevice)..., :variables, :parameters)

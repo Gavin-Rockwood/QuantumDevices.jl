@@ -98,6 +98,31 @@ function device_parameters(device)
     return parameters
 end
 
+"""Assemble full symbolic names without discarding unassigned variables."""
+function device_variables(device)
+    variables = Dict{String,Num}()
+    declarations = Iterators.flatten((
+        (values(c.variables) for c in values(device.components)),
+        (values(i.variables) for i in values(device.interactions)),
+        (keys(device.explicit_parameters),),
+    ))
+    for group in declarations, variable in group
+        name = string(variable)
+        haskey(variables, name) && !isequal(variables[name], variable) &&
+            throw(ArgumentError("distinct device variables have the same name: $name"))
+        variables[name] = variable
+    end
+    return variables
+end
+
+# Pair every named device variable with its concrete default or `missing`.
+function device_parameter_view(device)
+    validate_default_sources(device_default_sources(device))
+    defaults = Dict{Num,Number}(device_parameters(device))
+    return Dict{String,Union{Missing,Number}}(
+        name => get(defaults, variable, missing) for (name, variable) in device_variables(device))
+end
+
 
 """Atomically add explicit shared defaults. Equal existing defaults are allowed.
 `device.parameters` is an assembled view; use this function to declare defaults.

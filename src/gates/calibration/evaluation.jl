@@ -19,17 +19,14 @@ function _calibration_evaluator(prepared,reference,selections;
         remove_vacuum,herm_check,runtime=isnothing(paths),free_parameters=isnothing(paths) ? () : paths)
     iszero(shift) || (hamiltonian = hamiltonian-2pi*shift*_reference_identity(reference))
     dimensions = QuantumToolbox.Dimensions(QuantumToolbox.Space(length(inputs)),QuantumToolbox.Space(length(inputs)))
+    required = union(refs(prepared.model.hamiltonian,:param),Set{Num}(v for term in prepared.terms for v in refs(term,:param)))
     prepare=isnothing(paths) ? nothing : _compile_gate_preparation(prepared.recipe,prepared.parameters,paths)
     return function(candidate)
         prepared_runtime = isnothing(paths) ? nothing : prepare(candidate)
         recipe = isnothing(paths) ? candidate : prepared.recipe
         duration = isnothing(paths) ? recipe.duration : prepared_runtime.duration
         isfinite(duration) && duration>0 || throw(ArgumentError("Evolution duration must be finite and positive"))
-        pulses = isnothing(paths) ? Dict(c.target=>let
-            resolved_recipe=_resolve_pulse(c.pulse.recipe,prepared.parameters)
-            waveform=_compile_waveform(resolved_recipe)
-            t -> waveform(nothing,t,t)
-        end for c in recipe.controls) : prepared_runtime.runtime
+        pulses = isnothing(paths) ? _candidate_control_callbacks(recipe,prepared.parameters,required) : prepared_runtime.runtime
         options = _gate_solver_options(recipe,duration;runtime_stops=isnothing(paths) ? nothing : prepared_runtime.stops,kwargs...)
         solution = sesolve(deepcopy(hamiltonian),copy(initial),[zero(duration),duration];params=pulses,options...)
         SciMLBase.successful_retcode(solution.retcode) || error("Gate evolution failed with return code $(solution.retcode)")

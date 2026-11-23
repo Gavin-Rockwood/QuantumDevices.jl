@@ -65,6 +65,7 @@ const PAGES = [
         "Models and truncation" => "user_guide/models.md",
         "Pulses and flattops" => "user_guide/pulses.md",
         "Gate recipes" => "user_guide/gate_recipes.md",
+        "Voltage control maps" => "user_guide/control_maps.md",
         "Gates and evolution" => "user_guide/gates.md",
         "Calibration" => "user_guide/calibration.md",
         "Floquet and Stark shifts" => "user_guide/floquet.md",

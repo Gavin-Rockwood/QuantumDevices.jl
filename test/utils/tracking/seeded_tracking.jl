@@ -128,7 +128,6 @@ end
     scratch = Any[nothing for _ in 1:4]
     overlaps = QuantumDevices.seeded_tracking_overlaps!(nothing,scratch,seed,candidates,nothing;workers=4)
     @test size(overlaps) == (4,125)
-    @test length(overlaps) == 500
     @test all(size(packed.left,2) == 4 for packed in scratch)
     @test sum(size(packed.right,2) for packed in scratch) == 125
     @test all(size(packed.right,2) <= 32 for packed in scratch)

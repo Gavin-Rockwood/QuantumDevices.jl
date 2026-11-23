@@ -12,13 +12,17 @@ import JLD2
  @test_throws ArgumentError Interaction(:a,x;parameters=Dict(y=>2.))
  @test_throws ArgumentError Interaction(:a,x;parameters=Dict(x=>Inf))
  add_interaction!(d,i)
+ @test ismissing(d.parameters["x"])
+ @test isequal(d.variables["x"],x)
+ @test Set(keys(d.variables)) == Set(keys(d.parameters))
+ @test :variables in propertynames(d)
  r=Combine(inputs=[Input(:q,Leaf(component=:q),[0,1])],interactions=[:coupling])
  @test_throws ArgumentError build(d,r)
  @test build(d,r;parameters=Dict(x=>0.2)).parameters[x]==0.2
  add_parameters!(d,Dict(x=>0.3)); @test build(d,r).parameters[x]==0.3
- add_parameters!(d,Dict(x=>0.3)); @test d.parameters[x] == 0.3
+ add_parameters!(d,Dict(x=>0.3)); @test d.parameters["x"] == 0.3
  @test_throws ArgumentError add_parameters!(d,Dict(x=>0.4,y=>1.))
- @test !haskey(d.parameters,y)
+ @test !haskey(d.parameters,"y")
  bad=Interaction(:bad,x*q.operators["z"];parameters=Dict(x=>0.5))
  err=try add_interaction!(d,bad);nothing catch e;e end
  @test err isa ArgumentError
@@ -78,7 +82,7 @@ end
     @test_throws ArgumentError replace_recipe!(device,:kept,downstream)
     @test device.recipes[:kept] === original
     # Local defaults never enter the device's assembled declaration view.
-    @test !haskey(device.parameters,shared)
+    @test !haskey(device.parameters,"shared")
     @test build(device,:kept).parameters[shared] == 1.
     @test_throws Exception (device.recipes[:kept].interactions[1].parameters["shared"]=4.)
     editable = draft(device.recipes[:kept])
@@ -127,4 +131,34 @@ end
     add_parameters!(device,Dict(first_missing=>1.,second_missing=>2.))
     interaction.parameters["first_missing"] = 3.
     @test_throws ArgumentError build(device,recipe;parameters=Dict(first_missing=>4.))
+end
+
+@testset "assembled device variable and default views" begin
+    @variables explicit_only
+    device = QuantumDevice(:views)
+    left = add_component!(device,make_qubit(:left))
+    right = add_component!(device,make_qubit(:right))
+    shared = left.variables["ν"]
+    add_interaction!(device,Interaction(:shared,shared*right.operators["z"]))
+    add_parameters!(device,Dict(explicit_only=>4.))
+    @test device.variables isa Dict{String,Symbolics.Num}
+    @test device.parameters isa Dict{String,Union{Missing,Number}}
+    @test Set(keys(device.variables)) == Set(keys(device.parameters))
+    @test isequal(device.variables[string(shared)],shared)
+    @test device.parameters[string(shared)] == left.parameters["ν"]
+    @test haskey(device.variables,string(right.variables["ν"]))
+    @test device.parameters["explicit_only"] == 4.
+    variables = device.variables
+    empty!(variables)
+    @test !isempty(device.variables)
+    defaults = device.parameters
+    defaults["explicit_only"] = missing
+    @test device.parameters["explicit_only"] == 4.
+    @test_throws ArgumentError add_parameters!(device,Dict(explicit_only=>missing))
+    # Identically printed names need not identify equal Symbolics variables.
+    real_variable = Symbolics.variable(:collision;T=Real)
+    integer_variable = Symbolics.variable(:collision;T=Int)
+    add_parameters!(device,Dict(real_variable=>1.,integer_variable=>2.))
+    @test_throws ArgumentError device.variables
+    @test_throws ArgumentError device.parameters
 end

@@ -18,11 +18,10 @@ function make_hamiltonian(prepared::PreparedGate; free_parameters=(), scalar::Nu
 end
 
 function _compile_gate(model,gate,extra,values;scalar::Number=1,remove_vacuum::Bool=false,herm_check=1e-9,runtime::Bool=false,free_parameters=())
-    free = Set{Num}(c.target for c in gate.controls)
-    bindings = runtime ? nothing : _compile_gate_bindings(gate,values,free_parameters)
     expressions = vcat([model.hamiltonian],extra)
     required = union((refs(expression,:param) for expression in expressions)...)
-    issubset(free,required) || throw(ArgumentError("control target must appear in endpoint Hamiltonian or gate terms"))
+    free = _prepare_control_routes(gate,values,required).targets
+    bindings = runtime ? nothing : _compile_gate_bindings(gate,values,free_parameters;required)
     missing = setdiff(required,Set(keys(values)))
     isempty(missing) || throw(ArgumentError("missing reference values for parameters: $(join(string.(collect(missing)), ", "))"))
     term_list = reduce(vcat,physical_terms.(expressions);init=Tuple{Tuple,Sym}[])
@@ -52,13 +51,22 @@ function _runtime_gate_paths(gate,paths)
     end
     return Tuple(canonical)
 end
-function _compile_gate_bindings(gate,values,paths)
-    selected=_runtime_gate_paths(gate,paths)
-    return Dict(c.target=>let
-        recipe=_resolve_pulse(c.pulse.recipe,values)
-        waveform=_compile_waveform(recipe,selected;base=string(c.name))
-        (p,t) -> waveform(p,t,t)
-    end for c in gate.controls)
+function _compiled_control_waveform(control,values,selected)
+    recipe = _resolve_pulse(control.pulse.recipe,values)
+    waveform = _compile_waveform(recipe,selected;base=string(control.name))
+    return (p,t) -> waveform(p,t,t)
+end
+function _compile_gate_bindings(gate,values,paths;required=Set(keys(values)))
+    selected = _runtime_gate_paths(gate,paths)
+    routes = _prepare_control_routes(gate,values,required)
+    bindings = Dict{Num,Any}(c.target => _compiled_control_waveform(c,values,selected) for c in routes.direct)
+    for (map,controls) in routes.groups
+        waveforms = Tuple(_compiled_control_waveform(c,values,selected) for c in controls)
+        for (row,output) in enumerate(map.outputs)
+            bindings[output] = _compile_control_map_row(map,row,waveforms)
+        end
+    end
+    return bindings
 end
 function _prepare_gate_runtime(gate,reference,paths,params;canonical=nothing,default_trees=nothing)
     selected=isnothing(canonical) ? _runtime_gate_paths(gate,paths) : canonical
@@ -75,6 +83,9 @@ function _prepare_gate_runtime(gate,reference,paths,params;canonical=nothing,def
         r=control.pulse.recipe
         defaults=isnothing(default_trees) ? _resolve_reference_tree(r,_parameter_tree(r),reference) : default_trees[i]
         _resolve_physical_parameters(r,defaults,runtime;base=string(control.name))
+    end
+    for (control,tree) in zip(gate.controls,resolved)
+        control.target isa ControlInput && _validate_voltage_tree(control.pulse.recipe,tree)
     end
     duration=gate.duration_policy===:auto ? maximum(v.delay+pulse_duration(c.pulse,v) for (c,v) in zip(gate.controls,resolved)) : gate.duration
     all(v.delay+pulse_duration(c.pulse,v)<=duration for (c,v) in zip(gate.controls,resolved)) || throw(ArgumentError("duration cuts off a runtime control"))

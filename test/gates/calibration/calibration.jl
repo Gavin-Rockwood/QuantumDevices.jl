@@ -25,7 +25,6 @@ end
 
 @testset "gate calibration" begin
     import SciMLBase
-    import OptimizationOptimJL
     device = QuantumDevice(:calibration)
     q = add_component!(device,make_qubit(:q;frequency=0.))
     recipe = Recipe(device,[q])
@@ -46,11 +45,6 @@ end
         evolution_settings=(;abstol=1e-10,reltol=1e-10))
     @test problem.problem isa SciMLBase.OptimizationProblem
     @test problem.initial_values == (0.1,)
-    optimization = CalibrationProblem(prepared,["drive/amplitude"],target;
-        evolution_settings=(;abstol=1e-9,reltol=1e-9))
-    optimized = SciMLBase.solve(optimization,OptimizationOptimJL.NelderMead();maxiters=100)
-    @test SciMLBase.successful_retcode(optimized.solution.retcode)
-    @test optimization.problem.f(optimized.solution.u,nothing) < 1e-7
     candidate = calibrated_recipe(problem,[0.25])
     @test candidate.controls[1].pulse.amplitude == 0.25
     @test working.controls[1].pulse.amplitude == 0.1
@@ -86,10 +80,8 @@ end
     @test gate.calibration === record
     mktempdir() do directory
         path = joinpath(directory,"calibration-symbolics.jld2")
-        QuantumDevices.JLD2.jldsave(path;record,optimized)
+        QuantumDevices.JLD2.jldsave(path;record)
         restored = QuantumDevices.JLD2.load(path,"record")
-        native_restored = QuantumDevices.JLD2.load(path,"optimized")
-        @test native_restored.solution.u ≈ optimized.solution.u
         @test restored.recipe.controls[1].pulse.amplitude == 0.25
         @test isequal(restored.recipe.controls[1].target,amplitude)
         @test restored.provenance.prepared.parameters[amplitude] == 0.

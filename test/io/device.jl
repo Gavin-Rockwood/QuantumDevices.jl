@@ -64,6 +64,14 @@ using YAML, SHA
     restored=load_device(joinpath(root,"physical"))
     @test isequal(restored.components[:t].hamiltonian,transmon.hamiltonian)
     @test isequal(restored.parameters,physical.parameters)
+    # Unassigned registered interaction variables survive portable declarations.
+    unresolved = Symbolics.variable(:unresolved)
+    add_interaction!(physical,Interaction(:unset,unresolved*transmon.operators["charge"]))
+    save_device(joinpath(root,"unresolved"),physical)
+    restored_unresolved = load_device(joinpath(root,"unresolved"))
+    @test isequal(restored_unresolved.variables,physical.variables)
+    @test isequal(restored_unresolved.parameters,physical.parameters)
+    @test ismissing(restored_unresolved.parameters["unresolved"])
     # A tiny calibration owns complete reference arrays and can replay/continue portably.
     prepared=build(device,replacement)
     A=Symbolics.variable(:portable_A)

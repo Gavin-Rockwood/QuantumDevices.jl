@@ -12,6 +12,7 @@ function Base.show(io::IO, recipe::Leaf)
         recipe.kwargs,
         ", generator overrides=",
         length(recipe.generators),
+        ", control maps=", collect(keys(recipe.control_maps)),
         ")",
     )
 end
@@ -38,6 +39,7 @@ function Base.show(io::IO, recipe::Combine)
         recipe.interactions,
         ", parameters=",
         recipe.parameters,
+        ", control maps=", collect(keys(recipe.control_maps)),
         ")",
     )
 end
@@ -54,6 +56,7 @@ Base.show(io::IO, recipe::CompositeRecipe) = print(
     [i.name for i in recipe.interactions],
     ", max_dimension=",
     recipe.max_dimension,
+    ", control maps=", collect(keys(recipe.control_maps)),
     ")",
 )
 
@@ -96,6 +99,7 @@ function Base.show(io::IO, ::MIME"text/plain", recipe::Recipe)
         get(io, :compact, false) && return show(io, recipe)
         print(io, recipe isa Combine ? "Combine (compatibility)" : "Recipe",
               " · components: ", coverage_description(recipe), "\n",
+              "  control maps: ", list_summary(io,keys(recipe.control_maps)), "\n",
               "Planned build (branches are upstream inputs)\n\n")
         view = graph(recipe)
         lines = String[]
@@ -120,6 +124,7 @@ function Base.show(io::IO, ::MIME"text/plain", recipe::Recipe)
             "  generator overrides: " * list_summary(io, [r.name for r in keys(recipe.generators)]),
         )
     end
+    push!(lines, "  control maps: " * list_summary(io,keys(recipe.control_maps)))
     push!(lines, "  declared parameter overrides: " * parameter_values(recipe.parameters))
     return summary_lines(io, recipe, lines)
 end

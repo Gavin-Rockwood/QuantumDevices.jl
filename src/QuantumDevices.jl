@@ -28,6 +28,10 @@ module QuantumDevices
     include("interactions/interactions.jl")
     export Interaction
 
+    include("control_maps/control_maps.jl")
+    export AbstractControlMap, AffineControlMap, TabulatedControlMap, map_values, check_control_map
+    export add_control_map!, replace_control_map!, flux_map_from_frequency, control_map_diagnostics
+
     include("recipes/recipes.jl")
     export Recipe, Leaf, Combine, Input, ResolvedRecipe, draft
 
@@ -51,8 +55,10 @@ module QuantumDevices
     export NumericalModel, build, make_hamiltonian, get_hamiltonian, states
     export stateindex, state, stateenergy
 
+    include("control_maps/frequency_conversion.jl")
+
     include("gates/recipes/recipes.jl")
-    export Control, GateRecipe, PreparedGate, check_endpoints
+    export ControlInput, Control, GateRecipe, PreparedGate, check_endpoints
     include("gates/evolution/evolution.jl")
     export GateEvolution, evolve, unitary, idle_phases, gate_matrix
     include("gates/calibration/calibration.jl")

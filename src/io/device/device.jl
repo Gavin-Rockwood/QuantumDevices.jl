@@ -1,6 +1,7 @@
 using YAML,SHA
 include("codecs.jl")
 include("records.jl")
+include("control_maps.jl")
 include("symbolics.jl")
 include("recipes.jl")
 include("quantum.jl")
@@ -67,7 +68,7 @@ function save_device(folder::AbstractString,device::QuantumDevice;overwrite=fals
     validate_default_sources(device_default_sources(device))
     # IO owns encoded records; do not first deepcopy/freeze the whole live device.
     physical=(;name=device.name,components=device.components,interactions=device.interactions,
-        recipes=device.recipes,explicit_parameters=device.explicit_parameters,metadata=device.metadata)
+        recipes=device.recipes,explicit_parameters=device.explicit_parameters,metadata=device.metadata,control_maps=device.control_maps)
     context=_encode_record(physical,w,"device")
     gates=Dict{String,Any}()
     repository=_repository_record(device.gates,w,gates,IdDict())
@@ -102,7 +103,7 @@ function save_device(folder::AbstractString,device::QuantumDevice;overwrite=fals
         for (root,dirs,names) in walkdir(stage), name in names
             file=joinpath(root,name);files[relpath(file,stage)]=_file_digest(file)
         end
-        manifest=Dict("format"=>"quantumdevices.device","schema"=>1,"producer"=>_environment_fingerprint(),
+        manifest=Dict("format"=>"quantumdevices.device","schema"=>2,"producer"=>_environment_fingerprint(),
             "definition"=>"definitions/device.yaml","recipe_nodes"=>Dict(id=>"recipes/$id.yaml" for id in keys(w.recipes)),
             "gate_nodes"=>Dict(id=>"gates/$id.yaml" for id in keys(gates)),"gates"=>repository,"payload"=>"payloads/arrays.jld2",
             "code"=>source_records,"native_checkpoint"=>native_checkpoint,"files"=>files)
@@ -146,10 +147,18 @@ function load_device(folder::AbstractString;allow_code=false,load_native=false,t
     end
     recipes=Dict(id=>YAML.load_file(_declared_file(root,manifest,file)) for (id,file) in manifest["recipe_nodes"])
     all(recipe_fingerprint(record)==id for (id,record) in recipes) || _ioerror(root,"recipe content ID mismatch")
+    definition=YAML.load_file(_declared_file(root,manifest,manifest["definition"]))
+    gate_records=Dict(id=>YAML.load_file(_declared_file(root,manifest,file)) for (id,file) in manifest["gate_nodes"])
+    if manifest["schema"]==1
+        foreach(_migrate_control_map_records!,values(recipes))
+        _migrate_control_map_records!(definition)
+        foreach(_migrate_control_map_records!,values(gate_records))
+    end
     r=RecordReader(recipes,arrays,Dict(),Set(),Dict(),native)
-    context=Base.invokelatest(_decode_record,YAML.load_file(_declared_file(root,manifest,manifest["definition"])),r,"device")
+    context=Base.invokelatest(_decode_record,definition,r,"device")
+    manifest["schema"]==2 && !hasproperty(context,:control_maps) && _ioerror("device","schema 2 requires the control_maps registry field")
     device=Base.invokelatest(QuantumDevice,context)
-    gates=Dict(id=>Base.invokelatest(_decode_record,YAML.load_file(_declared_file(root,manifest,file)),r,"gates/$id") for (id,file) in manifest["gate_nodes"])
+    gates=Dict(id=>Base.invokelatest(_decode_record,record,r,"gates/$id") for (id,record) in gate_records)
     for (id,gate) in gates;Base.invokelatest(_validate_stored_gate,gate,"gates/$id");end
     _restore_repository!(device.gates,manifest["gates"],gates)
     _validate_device_definitions(device)

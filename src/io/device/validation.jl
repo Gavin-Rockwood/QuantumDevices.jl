@@ -15,11 +15,13 @@ function _validate_stored_prepared(prepared,path)
     _validate_stored_model(prepared.model,path*"/model")
     validate_parameter_values(prepared.parameters)
     for control in prepared.recipe.controls
-        haskey(prepared.parameters,control.target) || _ioerror(path,"control target has no captured physical value")
+        control.target isa ControlInput || haskey(prepared.parameters,control.target) || _ioerror(path,"control target has no captured physical value")
         for (_,(_,value)) in calibration_parameters(control.pulse)
             value isa Num && !issubset(Set(Symbolics.get_variables(value)),Set(keys(prepared.parameters))) && _ioerror(path,"offset references absent captured values")
         end
     end
+    required = union(refs(prepared.model.hamiltonian,:param),Set{Num}(v for expression in prepared.terms for v in refs(expression,:param)))
+    _prepare_control_routes(prepared.recipe,prepared.parameters,required)
     !isnothing(prepared.context) && _validate_device_definitions(QuantumDevice(prepared.context)) # Declaration/index validation only.
     return prepared
 end
@@ -97,12 +99,18 @@ function _validate_recipe_context(recipe,device,path,active=Base.IdSet())
         else
             _ioerror(path,"unsupported recipe representation")
         end
+        owners = collect_input_declarations(device,recipe).owners
+        _copy_recipe_maps(device,recipe.control_maps,owners,true)
     finally
         delete!(active,recipe)
     end
 end
 function _validate_device_definitions(device)
     validate_default_sources(device_default_sources(device))
+    for (name,map) in device.control_maps
+        name === map.name || _ioerror("control_maps/$name","registry name mismatch")
+        _validate_control_map_outputs(map,_recipe_map_variables(device,keys(device.components)))
+    end
     for (name,recipe) in device.recipes
         _validate_recipe_context(recipe,device,"recipes/$name")
     end

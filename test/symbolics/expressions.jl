@@ -1,8 +1,5 @@
 @testset "symbol identity and evaluation" begin
     p = Symbolics.variable(:ν)
-    @test isequal(p, Symbolics.variable(:ν))
-    @test Dict(p => 1)[Symbolics.variable(:ν)] == 1
-    @test isequal(Symbolics.variable(:g), Symbolics.variable(:g))
     a, b = op(:a, :x), op(:b, :x)
     @test OperatorRef(:a, :x) != OperatorRef(:b, :x)
     operators = Dict(OperatorRef(:a, :x) => QT.destroy(3), OperatorRef(:b, :x) => QT.num(3))

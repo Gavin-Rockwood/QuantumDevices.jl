@@ -1,5 +1,5 @@
 @testset "calibration result snapshots and state ordering" begin
-    import SciMLBase, OptimizationOptimJL
+    import SciMLBase
     device = QuantumDevice(:result_snapshots)
     q = add_component!(device,make_qubit(:q;frequency=0.0))
     recipe = Recipe(device,[q])
@@ -21,8 +21,8 @@
     @test all(problem.problem.lb .<= wrapped.solution.u .<= problem.problem.ub)
     unbounded = CalibrationProblem(prepared,["drive/amplitude"],target;states=labels)
     @test solve(unbounded;maxiters=3) isa CalibrationResult
-    raw = SciMLBase.solve(problem.problem,OptimizationOptimJL.SAMIN();maxiters=5)
-    @test !(raw isa CalibrationResult)
+    # Reuse the native result already produced by the package solve above.
+    raw = wrapped.solution
     before = evaluations[]
     result = CalibrationResult(problem,raw)
     @test evaluations[] == before

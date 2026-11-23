@@ -115,7 +115,8 @@ function capture_recipe_tree(device, source, frozen, active, path, components)
             for (ref, generator) in definition.generators)
         kwargs = frozen ? freeze_recipe_value(definition.kwargs) : thaw_recipe_value(definition.kwargs)
         captured = Leaf(definition.component, definition.dimension, kwargs,
-                        frozen ? RecipeMap(generators) : generators, parameters)
+                        frozen ? RecipeMap(generators) : generators, parameters,
+                        _copy_recipe_maps(device,definition.control_maps,[definition.component],frozen))
         return (; recipe = captured, owners = [definition.component], operators, provenance = Set{Any}())
     end
     definition isa Union{CompositeRecipe, Combine} ||
@@ -205,11 +206,13 @@ function capture_recipe_tree(device, source, frozen, active, path, components)
             frozen ? RecipeVector(definition.components) : collect(Symbol, definition.components),
             NamedTuple{Tuple(aliases)}(Tuple(copied)), frozen ? RecipeMap(states) : states,
             parameters, frozen ? RecipeVector(interactions) : interactions,
-            definition.max_dimension, scope, definition.dressing, definition.dressing_options)
+            definition.max_dimension, scope, definition.dressing, definition.dressing_options,
+            _copy_recipe_maps(device,definition.control_maps,owners,frozen))
     else
         captured = Combine(frozen ? RecipeVector(copied) : Input[copied...],
             frozen ? RecipeVector(interactions) : Union{Symbol, Interaction}[interactions...],
-            parameters, definition.max_dimension, definition.dressing, definition.dressing_options)
+            parameters, definition.max_dimension, definition.dressing, definition.dressing_options,
+            _copy_recipe_maps(device,definition.control_maps,owners,frozen))
     end
     return (; recipe = captured, owners, operators, provenance)
 end

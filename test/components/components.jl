@@ -38,12 +38,12 @@ end
         operator_generators=Dict("other"=>factory),hamiltonian=component.hamiltonian)
     device = QuantumDevice(:mutable_defaults)
     add_component!(device,component)
-    @test device.parameters[variables["gap"]] == 2.
+    @test device.parameters[string(variables["gap"])] == 2.
     component.parameters["gap"] = 3.
-    @test device.parameters[variables["gap"]] == 3.
+    @test device.parameters[string(variables["gap"])] == 3.
     view = device.parameters
-    view[variables["gap"]] = 8.
-    @test device.parameters[variables["gap"]] == 3.
+    view[string(variables["gap"])] = 8.
+    @test device.parameters[string(variables["gap"])] == 3.
     component.parameters["gap"] = Inf
     @test_throws ArgumentError device.parameters
     @test_throws ArgumentError build(device,Leaf(component=:custom);parameters=Dict(variables["gap"]=>4.))

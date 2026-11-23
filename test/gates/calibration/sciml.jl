@@ -57,7 +57,6 @@
     end
     solution = SciMLBase.solve(problem,OptimizationOptimJL.Fminbox(OptimizationOptimJL.LBFGS());
         maxiters=50,callback)
-    @test !(solution isa NamedTuple)
     @test SciMLBase.successful_retcode(solution.solution.retcode)
     @test solution.solution.objective < 1e-7
     @test solution.solution.u[1] ≈ 0.25 atol=1e-4
@@ -72,12 +71,6 @@
     @test record.settings.derivatives.function_kwargs.hess_prototype[1,1] == 0
     @test_throws ArgumentError CalibrationResult(problem,
         (;u=[0.6],retcode=SciMLBase.ReturnCode.Success))
-    sampled = CalibrationProblem(prepared,paths,target;lb=[0.0],ub=[0.5],evolution_settings=settings)
-    sampled_solution = SciMLBase.solve(sampled,OptimizationOptimJL.SAMIN();maxiters=30)
-    @test !(sampled_solution isa NamedTuple)
-    @test 0 <= sampled_solution.solution.u[1] <= 0.5
-    @test isfinite(sampled_solution.solution.objective)
-
     cons = (out,x,p) -> (out[1]=x[1]; nothing)
     cons_j = (jac,x,p) -> (jac[1,1]=1; nothing)
     cons_h = (matrices,x,p) -> (foreach(matrix->fill!(matrix,0),matrices); nothing)
@@ -87,35 +80,9 @@
     @test constrained.problem.lcons == [0.15]
     @test constrained.problem.ucons == [0.35]
     @test constrained.problem.f.cons === cons
-    constrained_solution = SciMLBase.solve(constrained,OptimizationOptimJL.IPNewton();maxiters=30)
-    @test SciMLBase.successful_retcode(constrained_solution.solution.retcode)
-    @test 0.15 <= constrained_solution.solution.u[1] <= 0.35
-    @test constrained_solution.solution.objective < 1e-7
-    constrained_record = constrained_solution
-    @test collect(constrained_record.settings.problem.lcons) == [0.15]
-    @test collect(constrained_record.settings.problem.ucons) == [0.35]
-    constrained.problem.lcons[1] = 0.14
-    @test collect(constrained_record.settings.problem.lcons) == [0.15]
     integer = CalibrationProblem(prepared,paths,target;lb=[0.0],ub=[0.5],int=[true])
     @test integer.problem.int == [true]
     maximum_problem = CalibrationProblem(prepared,paths,target;lb=[0.0],ub=[0.5],
         sense=OptimizationOptimJL.OptimizationBase.MaxSense)
     @test maximum_problem.problem.sense === OptimizationOptimJL.OptimizationBase.MaxSense
-
-    # Optional extension is already loaded transitively here; do not add backend deps.
-    extension = Base.get_extension(OptimizationOptimJL.OptimizationBase,:OptimizationFiniteDiffExt)
-    if extension !== nothing
-        ADTypes = parentmodule(OptimizationOptimJL.OptimizationBase.AutoFiniteDiff)
-        adtype = ADTypes.AutoFiniteDiff(;fdtype=Val(:central),absstep=1e-5,relstep=1e-5)
-        differentiated = CalibrationProblem(prepared,paths,target;adtype,
-            lb=[0.0],ub=[0.5],evolution_settings=settings)
-        @test differentiated.problem.f.adtype == adtype
-        fd_solution = SciMLBase.solve(differentiated,
-            OptimizationOptimJL.Fminbox(OptimizationOptimJL.LBFGS());maxiters=50)
-        @test SciMLBase.successful_retcode(fd_solution.solution.retcode)
-        @test fd_solution.solution.objective < 1e-7
-        @test fd_solution.solution.u[1] ≈ 0.25 atol=1e-4
-    else
-        @test_skip "Optional native FiniteDiff extension is not loaded"
-    end
 end

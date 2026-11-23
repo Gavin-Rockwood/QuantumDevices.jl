@@ -62,7 +62,7 @@ end
 function inherited_recipe(device, inputs::NamedTuple;
                           states = Dict(), interactions = Interaction[],
                           parameters = Dict(), max_dimension::Int = 1000,
-                          dressing = true, dressing_options = (;))
+                          dressing = true, dressing_options = (;), control_maps=:auto)
     isempty(inputs) && throw(ArgumentError("inputs must be nonempty"))
     max_dimension >= 0 || throw(ArgumentError("max_dimension must be nonnegative"))
     scope = gensym(:recipe)
@@ -93,7 +93,7 @@ function inherited_recipe(device, inputs::NamedTuple;
         selections[alias] = retained_states(selection)
     end
     return finish_recipe(device, owners, bindings, selections;
-        parameters, interactions, max_dimension, scope, dressing, dressing_options)
+        parameters, interactions, max_dimension, scope, dressing, dressing_options, control_maps)
 end
 
 # Public inherited forms share finalization with explicit component construction.
@@ -114,6 +114,7 @@ function CompositeRecipe(
     max_dimension::Int = 1000,
     dressing = true,
     dressing_options = (;),
+    control_maps = :auto,
 )
     max_dimension >= 0 || throw(ArgumentError("max_dimension must be nonnegative"))
     inputs isa NamedTuple ||
@@ -176,15 +177,16 @@ function CompositeRecipe(
         selections[alias] = retained_states(indices)
     end
     return finish_recipe(device, names, bindings, selections;
-        parameters, interactions, max_dimension, scope, dressing, dressing_options)
+        parameters, interactions, max_dimension, scope, dressing, dressing_options, control_maps)
 end
 
 # Both public paths capture the same ordered bindings, values, interactions, and available defaults.
 function finish_recipe(device, components, bindings, states;
-                       parameters, interactions, max_dimension, scope, dressing, dressing_options)
+                       parameters, interactions, max_dimension, scope, dressing, dressing_options, control_maps)
     aliases = Tuple(binding.name for binding in bindings)
     recipe = CompositeRecipe(components, NamedTuple{aliases}(Tuple(bindings)), states,
-        Dict{Num, Number}(parameters), Interaction[], max_dimension, scope, dressing, dressing_options)
+        Dict{Num, Number}(parameters), Interaction[], max_dimension, scope, dressing, dressing_options,
+        _capture_recipe_maps(device,bindings,control_maps,components))
     attach_interactions!(device, recipe, interactions)
     sources = recipe_default_sources(device, recipe)
     if !isnothing(device)

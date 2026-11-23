@@ -68,6 +68,7 @@ function _encode_record(x,w,path)
     x isa Complex && return Dict("tag"=>"complex","real"=>_encode_record(real(x),w,path),"imag"=>_encode_record(imag(x),w,path))
     x isa Symbol && return Dict("tag"=>"symbol","value"=>String(x))
     x isa AbstractString && return Dict("tag"=>"string","value"=>String(x))
+    x isa AbstractControlMap && return _control_map_record(x,w,path)
     x isa Recipe && return intern_recipe!(w,x,path)
     x isa QuantumObject && return _quantum_record(x,w,path)
     x isa Sym && return Dict("tag"=>"sym","value"=>_encode_record(x.expr,w,path))
@@ -110,6 +111,7 @@ end
 function _decode_record_inner(d,r,path)
     d isa AbstractDict && haskey(d,"tag") || _ioerror(path,"invalid record")
     tag=d["tag"]
+    tag=="control_map" && return _restore_control_map(d,r,path)
     tag=="nothing" && return nothing
     tag=="missing" && return missing
     tag=="bool" && return Bool(d["value"])

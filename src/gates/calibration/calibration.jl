@@ -116,6 +116,8 @@ function _calibration_model(prepared::PreparedGate, model::NumericalModel)
     definition = draft(model.recipe.definition)
     merge!(definition.parameters,model.parameters)
     old = prepared.recipe.model_recipe
+    empty!(definition.control_maps)
+    merge!(definition.control_maps,old.control_maps)
     old_scope = old isa CompositeRecipe ? old.scope : nothing
     new_scope = definition isa CompositeRecipe ? definition.scope : nothing
     terms = [copy_interaction(term,false;old_scope,new_scope) for term in prepared.recipe.terms]
@@ -125,8 +127,7 @@ function _calibration_model(prepared::PreparedGate, model::NumericalModel)
     extra,values = _reuse_gate_data(model,gate)
     expressions = vcat([model.hamiltonian],extra)
     required = union((refs(expression,:param) for expression in expressions)...)
-    all(control -> control.target in required,gate.controls) ||
-        throw(ArgumentError("control target must appear in replacement model Hamiltonian or gate terms"))
+    _prepare_control_routes(gate,values,required)
     foreach(control -> _resolve_reference_tree(control.pulse.recipe,_parameter_tree(control.pulse.recipe),values),gate.controls)
     for expression in expressions, (word,_) in physical_terms(expression)
         haskey(model.operator_products,word) || throw(ArgumentError(

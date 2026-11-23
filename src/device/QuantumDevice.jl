@@ -9,6 +9,7 @@ struct QuantumDevice{G<:AbstractDict}
     interactions_for::InteractionMembership
     interaction_components::InteractionMembership
     metadata::NamedTuple
+    control_maps::Dict{Symbol,AbstractControlMap}
     gates::G
 end
 
@@ -17,7 +18,7 @@ function QuantumDevice(name; metadata = (;))
     return QuantumDevice(name, Dict{Symbol,Component}(), Dict{Symbol,Interaction}(),
         Dict{Symbol,Recipe}(), Dict{Num,Number}(), registry,
         InteractionMembership(:components,registry), InteractionMembership(:interactions,registry), metadata,
-        Dict{Symbol,Union{Dict,QuantumGate}}())
+        Dict{Symbol,AbstractControlMap}(), Dict{Symbol,Union{Dict,QuantumGate}}())
 end
 
 # Reconstruct derived indexes through the same validated registration path.
@@ -49,6 +50,10 @@ function QuantumDevice(context::NamedTuple)
     for interaction in values(context.interactions)
         add_interaction!(device,copy_interaction(interaction,false))
     end
+    for (name,map) in get(context,:control_maps,Dict())
+        name === map.name || throw(ArgumentError("control map registry name does not match $name"))
+        add_control_map!(device,map)
+    end
     merge!(device.recipes,context.recipes)
     return device
 end
@@ -58,4 +63,8 @@ QuantumDevice(name::Symbol,components::Dict{Symbol,Component},interactions::Dict
     recipes::Dict{Symbol,Recipe},explicit_parameters::Dict{Num,Number},operators::OperatorRegistry,
     interactions_for::InteractionMembership,interaction_components::InteractionMembership,metadata::NamedTuple) =
     QuantumDevice(name,components,interactions,recipes,explicit_parameters,operators,
-        interactions_for,interaction_components,metadata,Dict{Symbol,Union{Dict,QuantumGate}}())
+        interactions_for,interaction_components,metadata,Dict{Symbol,AbstractControlMap}(),Dict{Symbol,Union{Dict,QuantumGate}}())
+
+# Preserve the previous complete field constructor with an empty registry.
+QuantumDevice(name,components,interactions,recipes,explicit_parameters,operators,interactions_for,interaction_components,metadata,gates::AbstractDict) =
+    QuantumDevice(name,components,interactions,recipes,explicit_parameters,operators,interactions_for,interaction_components,metadata,Dict{Symbol,AbstractControlMap}(),gates)

@@ -9,6 +9,7 @@ QuantumDevices
 
 - [Symbolic expressions and evaluation](../reference/symbolics.md)
 - [Components and models](../reference/models.md)
+- [Voltage control maps](../user_guide/control_maps.md)
 - [Pulses, gates, and calibration](../reference/gates.md)
 - [Tracking and parameter paths](../reference/tracking.md)
 - [Floquet and spectral tools](../reference/spectral_tools.md)

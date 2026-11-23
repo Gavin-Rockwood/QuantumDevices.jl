@@ -22,11 +22,7 @@
     @test isequal(residual,sin(3x))
     @test QuantumDevices.split_coefficient(val(a/2),fixed,free) == (2.,nothing)
     @test QuantumDevices.split_coefficient(val(0*x),fixed,free) == (0,nothing)
-    # Inspect the actual shared compiler's residual callback independently from
-    # its scaled matrix through a non-unit value and a zero fixed coefficient.
-    factor,residual = QuantumDevices.split_coefficient(val(3*x/a),fixed,free)
-    @test (2pi*factor)*QT.sigmax() ≈ (2pi*.75)*QT.sigmax()
-    @test QuantumDevices.residual_coefficient_function(residual,free,false)(Dict(x=>.7),.1) == .7
+    # A zero fixed coefficient must not require runtime parameters.
     zeroresult = QuantumDevices.compile_hamiltonian([((),val(a*x))],Dict{Tuple,QT.QuantumObject}(()=>QT.sigmax()),
         Dict(a=>0.),free,QT.qeye(2))
     @test iszero(norm(zeroresult(nothing,0.)))

@@ -1,3 +1,8 @@
+# Pkg.test() runs all coverage; core omits broader optimizer backend integrations.
+length(ARGS) <= 1 || throw(ArgumentError("expected at most one test mode: core or full"))
+const TEST_MODE = isempty(ARGS) ? "full" : only(ARGS)
+TEST_MODE in ("core", "full") || throw(ArgumentError("test mode must be core or full (or omitted)"))
+
 using Test
 using QuantumDevices
 import QuantumToolbox as QT
@@ -23,6 +28,7 @@ include("fixtures/models.jl")
     include("components/transmons.jl")
     include("device/operator_registry.jl")
     include("device/interactions.jl")
+    include("control_maps.jl")
 
     # Captured definitions and numerical construction.
     include("recipes/declarations.jl")
@@ -48,6 +54,9 @@ include("fixtures/models.jl")
     include("gates/evolution/vacuum.jl")
     include("gates/calibration/calibration.jl")
     include("gates/calibration/sciml.jl")
+    if TEST_MODE == "full"
+        include("gates/calibration/backend_integration.jl")
+    end
     include("gates/calibration/runtime.jl")
     include("gates/calibration/results.jl")
     include("gates/calibration/parameterization.jl")

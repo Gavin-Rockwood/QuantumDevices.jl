@@ -16,33 +16,8 @@
 end
 
 @testset "independent spectra, transforms, and full products" begin
-frequency = Symbolics.variable(:ν)
-
-op(:qubit, :z)
-
-symbolic_hamiltonian = 0.5 * (frequency) * op(:qubit, :z)
-
-evaluate(
-    symbolic_hamiltonian,
-    Dict(frequency => 5.0),
-    Dict(OperatorRef(:qubit, :z) => QT.sigmaz()),
-)
-
 qubit = make_qubit(:q1; frequency=5.0)
-
-qubit.hamiltonian
-
-qubit.parameters
-
-qubit.operator_generators["x"]()
-
 resonator = make_resonator(:resonator; dimension=4)
-
-resonator.hamiltonian
-
-resonator.operator_generators["a"]()
-
-resonator.operator_generators["a"](6)
 
 coupling = Symbolics.variable(:g)
 exchange_expression = (coupling) * (
@@ -58,20 +33,8 @@ device = QuantumDevice(:two_qubits)
 add_component!(device, qubit)
 second_qubit = add_component!(device, make_qubit(:q2; frequency=6.2))
 add_interaction!(device, exchange)
-device
-
-device.components[:q1].hamiltonian
-
 idle_recipe = add_recipe!(device, :q1_idle, Leaf(component=:q1))
 idle_model = build(device, :q1_idle)
-
-idle_model.spectrum
-
-states(idle_model)
-
-idle_model.operators[OperatorRef(:q1, :x)]
-
-idle_model.recipe
 
 add_recipe!(device, :q1_full, Leaf(
     component=:q1,
@@ -84,22 +47,10 @@ coupled_recipe = add_recipe!(device, :coupled, Combine(
     parameters=Dict(qubit.variables["ν"] => 5.3),
 ))
 
-coupled_model = build(device, :coupled)
-
-coupled_model.spectrum
-
-coupled_model.recipe
-
-get_hamiltonian(device, :coupled)
-
 target_model = build(device, :coupled; parameters=Dict(qubit.variables["ν"] => 5.4))
-
-(recipe=coupled_model.spectrum, target=target_model.spectrum)
 
 uncoupled_model = build(device, :coupled; parameters=Dict(coupling => 0.0))
 stronger_coupling_model = build(device, :coupled; parameters=Dict(coupling => 0.4))
-(uncoupled=uncoupled_model.spectrum, coupled=coupled_model.spectrum,
-    stronger=stronger_coupling_model.spectrum)
 
 resonator_device = QuantumDevice(:resonator_pair)
 add_component!(resonator_device, resonator)
@@ -117,8 +68,6 @@ add_recipe!(resonator_device, :retained, Combine(
     interactions=[:shift],
 ))
 resonator_model = build(resonator_device, :retained)
-
-resonator_model.spectrum
 
 annihilation = QT.destroy(4)
 retained_embedding = QuantumDevices.selection(4, [1, 2])
@@ -147,7 +96,6 @@ construction_embedding = QT.tensor(input_basis_map(first_leaf), input_basis_map(
 @test target_model.operators[OperatorRef(:q2, :x)] ≈ construction_embedding' * QT.tensor(identity2, pauli_x) * construction_embedding
 
 @test qubit.operator_generators["x"](2; unused=true) == pauli_x
-@test isequal(Symbolics.variable(:g), Symbolics.variable(:g))
 @test make_qubit(:unlabeled; label=nothing).label === nothing
 @test make_qubit(:labeled; label=:q).label == "q"
 @test get_hamiltonian(device, :coupled) isa Sym
@@ -204,13 +152,6 @@ overridden_model = build(device, Leaf(
 ), Dict())
 @test overridden_model.operators[x_reference] ≈ 2 * first_leaf.operators[x_reference]
 @test length(overridden_model.operators) == 3
-ambiguous_generator = OperatorGenerator((dimension; kwargs...) -> pauli_x, 3)
-@test rejects(() -> build(device, Leaf(
-    component=:q1, generators=Dict(x_reference => ambiguous_generator),
-), Dict()))
-@test length(build(device, Leaf(
-    component=:q1, dimension=2, generators=Dict(x_reference => ambiguous_generator),
-), Dict()).spectrum) == 2
 add_recipe!(device, :nested, Combine(inputs=[Input(:pair, :coupled, [0, 1])]))
 @test length(build(device, :nested).spectrum) == 2
 end

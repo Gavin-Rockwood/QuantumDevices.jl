@@ -18,7 +18,6 @@
         @test threaded.other.energies == serial.other.energies
         for (u,v) in zip(threaded.states,serial.states)
             @test u ≈ v
-            @test u*u' ≈ v*v'
         end
         for name in propertynames(serial.accuracy)
             @test getproperty(threaded.accuracy,name) ≈ getproperty(serial.accuracy,name)

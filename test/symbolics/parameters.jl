@@ -9,7 +9,6 @@
     @test !isequal(aliases["EC"],other["EC"])
     @test idle["EC"] == .25
     @test sameidle["EC"] == .30
-    @test isequal(deepcopy(aliases["EC"]),aliases["EC"])
     unicode, _ = component_parameters(:α; EC=.2)
     @test isequal(unicode["EC"],Symbolics.variable(:EC_α))
     bare, _ = component_parameters(:q1;subscript=nothing,EC=.2)

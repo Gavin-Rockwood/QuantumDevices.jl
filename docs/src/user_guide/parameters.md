@@ -65,7 +65,9 @@ Symbolics parameter maps are separate from this structural pulse-path interface.
 Shared physical defaults can be declared with
 `add_parameters!(device, Dict(EC1c=>4.3, EC2c=>4.5, EC12=>161.4))`.
 Component and interaction declarations remain separate; `device.parameters`
-returns a fresh assembled symbolic-keyed view. Use `add_parameters!` for updates
+returns a fresh string-keyed view of defaults, using full symbolic names such as
+`"EC_q1"`. Unassigned variables have value `missing`. `device.variables` uses
+the same keys and returns the corresponding Symbolics variables. Use `add_parameters!` for updates
 rather than mutating that view. Repeated equal defaults are permitted. Conflicting
 defaults always fail with both values and sources, before recipe/build overrides
 or controls are applied. Interaction defaults are optional until build, where

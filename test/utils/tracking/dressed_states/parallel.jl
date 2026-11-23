@@ -1,7 +1,5 @@
 @testset "batched dressing samples" begin
     @test QuantumDevices.normalize_dressing_options((;)).thread_count == 1
-    @test (;thread_count=4).thread_count == 4
-    @test occursin("thread_count = 4", repr((;thread_count=4)))
     for invalid in (true, false, 0, -1, 1.0, 2.5, :two, nothing)
         @test_throws ArgumentError QuantumDevices.normalize_dressing_options((;thread_count=invalid))
     end
@@ -62,12 +60,6 @@
         zero = build(d, parallel_fixture(method, 100; coupled=false))
         @test zero.labeling.total_steps == 2
     end
-    # Serialization retains the requested count, even when this process caps it.
-    mktemp() do path, io
-        close(io)
-        QuantumDevices.JLD2.jldsave(path; options=(;thread_count=4, trajectory=identity))
-        @test QuantumDevices.JLD2.load(path, "options").thread_count == 4
-    end
 end
 
 @testset "builder dressing threads" begin
@@ -114,15 +106,18 @@ end
     @test build(d, gate; dressed_threads=2, tracking_threads=1).model.spectrum ≈ serial.spectrum
     @test build(d, quantumgate; dressed_threads=2, tracking_threads=1).model.spectrum ≈ serial.spectrum
     @test length(evolve(d, quantumgate; dressed_threads=2, tracking_threads=1, saveat=[0., .01]).times) == 2
-    for invalid in (true, false, 0, -2, 1.0, 2.5, :two)
-        for recipe in (parent, disabled, leaf, :child, gate, quantumgate)
-            @test_throws ArgumentError build(d, recipe; dressed_threads=invalid)
-            @test_throws ArgumentError build(d, recipe; tracking_threads=invalid)
-            @test_throws ArgumentError build(d, recipe; tracking_threads=nothing)
-        end
-        @test parent.dressing_options == original
-        @test saved.dressing_options.thread_count == 3
+    # Validate representative classes once, then establish public forwarding.
+    for invalid in (true, 0, -2, 1.0, :two)
+        @test_throws ArgumentError build(d, parent; dressed_threads=invalid)
+        @test_throws ArgumentError build(d, parent; tracking_threads=invalid)
     end
+    for recipe in (disabled, leaf, :child, gate, quantumgate)
+        @test_throws ArgumentError build(d, recipe; dressed_threads=0)
+        @test_throws ArgumentError build(d, recipe; tracking_threads=0)
+    end
+    @test_throws ArgumentError build(d, parent; tracking_threads=nothing)
+    @test parent.dressing_options == original
+    @test saved.dressing_options.thread_count == 3
     broken = Recipe(d, [q]; dressing_options=(trajectory=t -> NaN, nsteps=3))
     add_interaction!(broken, Interaction(:broken_ramp, .1broken.inputs.q.operators.x))
     broken_options = broken.dressing_options

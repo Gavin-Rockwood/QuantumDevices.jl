@@ -38,6 +38,7 @@ envelope_tstops
 
 ```@docs
 Control
+ControlInput
 GateRecipe
 PreparedGate
 check_endpoints
@@ -64,3 +65,17 @@ solve
 `solve(problem; kwargs...)` uses the default bound-aware NLopt Nelder–Mead backend.
 `solve(problem, algorithm; kwargs...)` selects a native SciML optimizer and
 returns CalibrationResult; solving `problem.problem` returns the native solution.
+
+## Static voltage control maps
+
+```@docs
+AbstractControlMap
+AffineControlMap
+TabulatedControlMap
+map_values
+check_control_map
+add_control_map!
+replace_control_map!
+flux_map_from_frequency
+control_map_diagnostics
+```

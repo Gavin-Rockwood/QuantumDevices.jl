@@ -76,7 +76,9 @@ add_parameters!(device, Dict(g=>0.02))
 interaction = Interaction(:exchange, g*a*b)
 ```
 
-`device.parameters` assembles a fresh symbolic-variable-to-value view. Use
+`device.variables` maps full symbolic names (for example, `"EC_q1"`) to
+Symbolics variables. `device.parameters` uses the same string keys and returns
+assigned defaults or `missing` for unassigned variables. Both are fresh views. Use
 `add_parameters!` to add declarations; editing that temporary view does not update
 the device. Equal declarations are allowed, while conflicting defaults report
 both values and sources. Conflicts are checked before recipe/build overrides or

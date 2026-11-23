@@ -12,9 +12,10 @@
     )
         trial=draft(recipe);mutate(trial)
         @test_throws ArgumentError QuantumDevices.snapshot_recipe(d,trial)
-        @test_throws ArgumentError build(d,trial)
-        @test_throws ArgumentError get_hamiltonian(d,trial)
     end
+    invalid=draft(recipe);invalid.states[:q]=[0,0]
+    @test_throws ArgumentError build(d,invalid)
+    @test_throws ArgumentError get_hamiltonian(d,invalid)
     QD=QuantumDevices
     binding=recipe.inputs.q
     badbinding=QD.InputBinding(:other,binding.recipe,binding.owners,recipe.scope,binding.operator_names)

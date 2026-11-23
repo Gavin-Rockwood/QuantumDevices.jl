@@ -1,7 +1,7 @@
 import DifferentialEquations, ADTypes
 const _IO_DOMAIN_TYPES = Dict{String,Any}(
     "OperatorGenerator"=>OperatorGenerator,"Input"=>Input,"InputBinding"=>InputBinding,
-    "ResolvedRecipe"=>ResolvedRecipe,"Control"=>Control,"LabelDiagnostic"=>LabelDiagnostic,
+    "ResolvedRecipe"=>ResolvedRecipe,"ControlInput"=>ControlInput,"Control"=>Control,"LabelDiagnostic"=>LabelDiagnostic,
     "DressedStates"=>DressedStates,"PreparedGate"=>PreparedGate,"GateEvolution"=>GateEvolution)
 function _fields_record(x,w,path;omit=())
     return Dict(String(k)=>_encode_record(getfield(x,k),w,"$path/$k") for k in fieldnames(typeof(x)) if !(k in omit))

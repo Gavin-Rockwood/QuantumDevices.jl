@@ -25,7 +25,7 @@ draft(gate::GateRecipe) = capture_gate(nothing, gate; frozen=false)
 # Physical definitions are provenance, separate from mutable numerical projections.
 # Callable factories retain their bindings; external mutable closure state cannot
 # be made reproducible by copying a device.
-function capture_gate_context(device)
+function capture_gate_context(device; include_recipes=true, include_maps=true)
     components = Dict(name => (; name=c.name, variables=RecipeMap(c.variables), parameters=RecipeMap(c.parameters),
         operators=RecipeMap(c.operators),
         operator_generators=RecipeMap(Dict(k=>OperatorGenerator(deepcopy(v.f),v.default_dimension)
@@ -34,8 +34,9 @@ function capture_gate_context(device)
         for (name,c) in device.components)
     return (; name=device.name, components=RecipeMap(components),
         explicit_parameters=RecipeMap(device.explicit_parameters),
+        control_maps=RecipeMap(include_maps ? device.control_maps : Dict{Symbol,AbstractControlMap}()),
         interactions=RecipeMap(Dict(name=>copy_interaction(i,true) for (name,i) in device.interactions)),
         recipes=RecipeMap(Dict(name=>(is_recipe_snapshot(r) ? snapshot_recipe(nothing,r) : copy_recipe_tree(device,r,true))
-            for (name,r) in device.recipes)),
+            for (name,r) in (include_recipes ? device.recipes : Dict{Symbol,Recipe}()))),
         metadata=freeze_recipe_value(device.metadata))
 end

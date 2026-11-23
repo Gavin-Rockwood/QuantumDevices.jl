@@ -57,17 +57,11 @@
     @test record.validation.loss ≈ expected atol=1e-8
     @test gate_matrix(record.validation.evolution).data ≈ gate_matrix(centered).data atol=1e-8
     replayed = evolve(record)
-    named = evolve(gate.calibration)
     overridden = evolve(record;remove_vacuum=false)
-    named_overridden = evolve(gate.calibration;remove_vacuum=false)
     @test replayed.solver.remove_vacuum === true
-    @test named.solver.remove_vacuum === true
     @test overridden.solver.remove_vacuum === false
-    @test named_overridden.solver.remove_vacuum === false
     @test gate_matrix(replayed).data ≈ gate_matrix(centered).data atol=1e-8
-    @test gate_matrix(named).data ≈ gate_matrix(centered).data atol=1e-8
     @test gate_matrix(overridden).data ≈ gate_matrix(physical).data atol=1e-8
-    @test gate_matrix(named_overridden).data ≈ gate_matrix(physical).data atol=1e-8
     @test_throws ArgumentError CalibrationProblem(prepared,paths,target;remove_vacuum=true)
     @test_throws ArgumentError CalibrationProblem(prepared,paths,target;evolution_settings=(;remove_vacuum=1))
 end

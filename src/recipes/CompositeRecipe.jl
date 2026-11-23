@@ -18,6 +18,7 @@ struct CompositeRecipe{
     S <: AbstractDict,
     P <: AbstractDict,
     I <: AbstractVector,
+    M <: AbstractDict,
 } <: Recipe
     components::C
     inputs::NamedTuple
@@ -28,13 +29,14 @@ struct CompositeRecipe{
     scope::Symbol # local operator binding identity, refreshed when copying
     dressing::Bool
     dressing_options::NamedTuple
+    control_maps::M
 
     # Direct constructors validate options; contextual capture validates mutable declarations.
     function CompositeRecipe(components::C, inputs::NamedTuple, states::S, parameters::P,
                              interactions::I, max_dimension::Int, scope::Symbol,
-                             dressing, dressing_options) where {C <: AbstractVector{Symbol}, S <: AbstractDict, P <: AbstractDict, I <: AbstractVector}
+                             dressing, dressing_options, control_maps::M) where {C <: AbstractVector{Symbol}, S <: AbstractDict, P <: AbstractDict, I <: AbstractVector, M <: AbstractDict}
         dressing_options = validate_recipe_dressing(dressing, dressing_options)
-        new{C, S, P, I}(components, inputs, states, parameters, interactions, max_dimension, scope, dressing, dressing_options)
+        new{C, S, P, I, M}(components, inputs, states, parameters, interactions, max_dimension, scope, dressing, dressing_options, control_maps)
     end
 end
 
@@ -51,3 +53,5 @@ CompositeRecipe(components, inputs, states, parameters, interactions, max_dimens
         true,
         (;),
     )
+
+CompositeRecipe(components,inputs,states,parameters,interactions,max_dimension,scope,dressing,dressing_options) = CompositeRecipe(components,inputs,states,parameters,interactions,max_dimension,scope,dressing,dressing_options,Dict{Symbol,AbstractControlMap}())

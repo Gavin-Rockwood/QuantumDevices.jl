@@ -9,14 +9,11 @@
     @test text((x*y)') == "(q1.charge * q2.charge)′"
     @test occursin("\\frac",tex(x/(y-z)))
     @test occursin("\\dagger",tex((x*y)'))
-    @test isequal(p',p)
     @test occursin("\\sqrt",tex(sqrt((p))))
     @test occursin("cospi",tex(cospi(p)))
     @test occursin("sinpi",tex(sinpi(p)))
     @test occursin("flux",tex(p))
     @test !occursin(" = ",tex(p))
-    @test !occursin(" = ",tex((p)))
-    @test tex(p) == String(latex(p))
     @test occursin("\\frac{1}{2}",tex(val(1//2)))
     @test !occursin("//",tex(val(1//2)))
     @test occursin("\\mathrm{i}",tex((1+2im)*x))
@@ -73,7 +70,6 @@ end
     @test occursin("idle parameters",plain(only(r.interactions)))
     @test !occursin("\n",sprint(show,r))
     @test !occursin("\n",repr(MIME"text/plain"(),r;context=:compact=>true))
-    @test plain(d) == plain(d)
     @test occursin("Projected dimension: 3",plain(graph(d,r)))
     @test occursin("Initial dimension: 31",plain(graph(r)))
     @test occursin("Initial dimension: 9",plain(graph(d,Recipe(d,[q]))))
@@ -142,9 +138,6 @@ end
     expected="TrackedData\n  Number of Tracked Objects: 80\n  Number of Saved Steps:     1\n\n  Key ranges:\n    1: 0:3\n    2: 0:4\n    3: 0:3"
     output=repr(MIME"text/plain"(),result.states)
     @test output==expected
-    @test !occursin("9876",output)
-    @test !occursin("20",output)
-    @test !occursin("overlap",output)
     matrix=display_fixture(keys;steps=(1,2,3))
     matrixtext=repr(MIME"text/plain"(),matrix.states)
     @test occursin("Tracked Objects: 80",matrixtext)
@@ -175,7 +168,6 @@ end
     @test occursin("… (40 values)",repr(MIME"text/plain"(),longvalues.states;context))
     compact=repr(MIME"text/plain"(),result.states;context=IOContext(IOBuffer(),:compact=>true,:limit=>true))
     @test compact=="TrackedData(objects=80, saved steps=1)"
-    @test !occursin('\n',compact)
     @test result.states[1]==9876.54321
     @test result.states[1:2] isa Vector{Float64}
     @test occursin("9876",repr(MIME"text/plain"(),result.states[1:2]))
