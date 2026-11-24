@@ -4,8 +4,6 @@ Base.show(io::IO, i::Interaction) = print(
     i.name,
     ", expression=",
     i.expression,
-    ", parameters=",
-    i.parameters,
     ")",
 )
 
@@ -16,8 +14,7 @@ function Base.show(io::IO, ::MIME"text/plain", interaction::Interaction)
         [
             "Interaction $(interaction.name)",
             "  expression: $(interaction.expression)",
-            "  idle parameters: " *
-            parameter_values(interaction.parameters),
+            "  inputs: " * join(keys(interaction.variables), ", "),
         ],
     )
 end

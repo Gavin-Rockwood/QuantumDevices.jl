@@ -7,29 +7,27 @@ import JLD2
     g = Symbolics.variable(:physical_g)
     a = r.operators["a"]
     source = Interaction(:product,g*(a*a')*q.operators["z"];
-        parameters=Dict(g=>.07),metadata=(notes=["original"],))
-    automatic = Recipe(d,[r,:q];interactions=[source],dressing=false)
-    manual = Recipe(d,[r,q];dressing=false)
+        metadata=(notes=["original"],))
+    automatic = Recipe(d,[r,:q];interactions=[source],parameters=Dict(g=>.07),dressing=false)
+    manual = Recipe(d,[r,q];parameters=Dict(g=>.07),dressing=false)
     ma = manual.inputs.r.operators.a
-    add_interaction!(manual,Interaction(:product,g*(ma*ma')*manual.inputs.q.operators.z;
-        parameters=Dict(g=>.07)))
+    add_interaction!(manual,Interaction(:product,g*(ma*ma')*manual.inputs.q.operators.z))
     @test build(d,automatic).spectrum ≈ build(d,manual).spectrum
     @test all(ref -> ref isa OperatorRef,QuantumDevices.refs(source.expression,:op))
     @test only(automatic.interactions) !== source
     @test only(automatic.interactions).variables !== source.variables
-    @test only(automatic.interactions).parameters !== source.parameters
+    @test !hasproperty(only(automatic.interactions), :parameters)
     push!(only(automatic.interactions).metadata.notes,"captured")
     @test source.metadata.notes == ["original"]
     # Registered device interactions are selected explicitly and counted once.
     add_interaction!(d,source)
-    @test build(d,Recipe(d,[r,q];interactions=[source],dressing=false)).spectrum ≈ build(d,manual).spectrum
+    @test build(d,Recipe(d,[r,q];interactions=[source],parameters=Dict(g=>.07),dressing=false)).spectrum ≈ build(d,manual).spectrum
     @test isempty(Recipe(d,[r,q]).interactions)
     group = Recipe(d,[r,q];states=Dict(r=>[0,1],q=>[0,1]),dressing=false)
-    grouped = Recipe(d,[r,q];inputs=(pair=group,),interactions=[source],dressing=false)
-    grouped_manual = Recipe(d,[r,q];inputs=(pair=group,),dressing=false)
+    grouped = Recipe(d,[r,q];inputs=(pair=group,),interactions=[source],parameters=Dict(g=>.07),dressing=false)
+    grouped_manual = Recipe(d,[r,q];inputs=(pair=group,),parameters=Dict(g=>.07),dressing=false)
     ga = grouped_manual.inputs.pair.operators.r.a
-    add_interaction!(grouped_manual,Interaction(:product,g*(ga*ga')*grouped_manual.inputs.pair.operators.q.z;
-        parameters=Dict(g=>.07)))
+    add_interaction!(grouped_manual,Interaction(:product,g*(ga*ga')*grouped_manual.inputs.pair.operators.q.z))
     @test build(d,grouped).spectrum ≈ build(d,grouped_manual).spectrum
     @test all(ref -> ref.input == :pair,QuantumDevices.refs(only(grouped.interactions).expression,:op))
     @test_throws ArgumentError Recipe(d,[r];interactions=[source])
@@ -42,20 +40,19 @@ import JLD2
     term = Interaction(:missing,missing*q.operators["z"])
     unresolved = Recipe(d,[q];interactions=[term],dressing=false)
     @test_throws ArgumentError build(d,unresolved)
-    @test build(d,unresolved;parameters=Dict(missing=>.2)).parameters[missing] == .2
-    @test build(d,Recipe(d,[q];interactions=[term],parameters=Dict(missing=>.3))).parameters[missing] == .3
-    conflict = Interaction(:conflict,g*q.operators["z"];parameters=Dict(g=>.08))
-    @test_throws ArgumentError Recipe(d,[q];interactions=[conflict],parameters=Dict(g=>9.))
+    @test build(d,unresolved;parameters=Dict(missing=>.2)).resolved_parameters[missing] == .2
+    @test build(d,Recipe(d,[q];interactions=[term],parameters=Dict(missing=>.3))).resolved_parameters[missing] == .3
+    assigned = Recipe(d,[q];interactions=[Interaction(:assigned,g*q.operators["z"])],parameters=Dict(g=>9.))
+    @test build(d,assigned).resolved_parameters[g] == 9.
     frequency = q.variables["ν"]
-    @test_throws ArgumentError Recipe(d,[q];interactions=[Interaction(:component_conflict,
-        frequency*q.operators["z"];parameters=Dict(frequency=>6.))],
-        parameters=Dict(frequency=>9.))
-    # An upstream declaration also participates before operating-point overrides.
-    upstream = Recipe(d,[q];interactions=[Interaction(:upstream,missing*q.operators["z"];
-        parameters=Dict(missing=>.1))])
-    @test_throws ArgumentError Recipe(d,[q];inputs=(child=upstream,),
-        interactions=[Interaction(:conflict,missing*q.operators["z"];parameters=Dict(missing=>.2))],
-        parameters=Dict(missing=>9.))
+    component_override = Recipe(d,[q];interactions=[Interaction(:component_shift,
+        frequency*q.operators["z"])],parameters=Dict(frequency=>9.))
+    @test build(d,component_override).resolved_parameters[frequency] == 9.
+    # A parent assignment overrides the stored upstream operating point.
+    upstream = Recipe(d,[q];interactions=[Interaction(:upstream,missing*q.operators["z"])],parameters=Dict(missing=>.1))
+    overridden = Recipe(d,[q];inputs=(child=upstream,),
+        interactions=[Interaction(:parent,missing*q.operators["z"])],parameters=Dict(missing=>9.))
+    @test build(d,overridden).resolved_parameters[missing] == 9.
     add_recipe!(d,:saved_physical,grouped)
     saved = d.recipes[:saved_physical]
     editable = draft(saved)

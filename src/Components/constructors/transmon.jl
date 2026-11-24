@@ -1,21 +1,13 @@
+# Shared charge-basis physics for fixed and flux-tunable transmons.
 function charge_basis_dimension(dimension)
-    dimension isa Integer && dimension > 0 && isodd(dimension) || throw(
-        ArgumentError("charge-basis dimension must be a positive odd state count (2*ncut + 1)"),
-    )
+    dimension = validate_operator_dimension(dimension)
+    isodd(dimension) || throw(ArgumentError("charge-basis dimension must be a positive odd state count (2*ncut + 1)"))
     return dimension
 end
 
-function charge_basis_generators(name::Symbol, dimension)
-    charge_basis_dimension(dimension)
-    return Dict(
-        "charge" => OperatorGenerator(
-            BuiltinGenerator(:charge),
-            dimension,
-        ),
-        "jump" =>
-            OperatorGenerator(BuiltinGenerator(:jump), dimension),
-    )
-end
+charge_operator(dimension) = num(charge_basis_dimension(dimension)) - (dimension-1) ÷ 2
+jump_operator(dimension) = tunneling(charge_basis_dimension(dimension), 1)
+merge!(BUILTIN_OPERATOR_FUNCTIONS, Dict{String,Function}("charge" => charge_operator, "jump" => jump_operator))
 
 """
     make_transmon(name::Symbol, EC, EJ; ng=0.0, dimension=101, label=missing, metadata=(;), subscript=missing)
@@ -40,13 +32,14 @@ function make_transmon(
     metadata = (;),
     subscript = missing,
 )
+    dimension = charge_basis_dimension(dimension)
     variables, parameters = component_parameters(name; subscript, EC, EJ, ng)
     hamiltonian =
         4 * variables["EC"] * (op(name, :charge) - variables["ng"]) ^ 2 -
         variables["EJ"] * op(name, :jump) / 2
     operators, operator_generators = component_operators(name,
-        charge_basis_generators(name, dimension))
-    return Component(name; variables, parameters, operators, operator_generators, hamiltonian,
+        Dict{String,Function}("charge" => charge_operator, "jump" => jump_operator))
+    return Component(name; variables, parameters, operators, operator_generators, hamiltonian, dimension,
         type="transmon", label=ismissing(label) ? string(name) : label, metadata)
 end
 

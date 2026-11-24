@@ -54,8 +54,8 @@
     shared = Symbolics.variable(:external_shared)
     function shared_component(name,value)
         variables = (; frequency=shared)
-        generators = Dict(OperatorRef(name,:z)=>OperatorGenerator((d;kwargs...)->QT.sigmaz(),2))
-        Component(name,variables,Dict(shared=>value),generators,shared*op(name,:z),"shared",nothing,(;))
+        generators = Dict(OperatorRef(name,:z)=>(d->QT.sigmaz()))
+        Component(name,variables,Dict(shared=>value),generators,shared*op(name,:z),"shared",nothing,(;);dimension=2)
     end
     left = add_component!(device,shared_component(:left,2.))
     right = add_component!(device,shared_component(:right,2.))
@@ -63,22 +63,22 @@
     @test_throws ArgumentError add_component!(device,shared_component(:conflict,3.))
     @test_throws ArgumentError add_component!(device,shared_component(:left,2.))
     recipe = Recipe(device,[left,right];parameters=Dict(shared=>3.))
-    add_interaction!(recipe,Interaction(:shift,shared*recipe.inputs.left.operators.z,Dict(shared=>2.)))
+    add_interaction!(recipe,Interaction(:shift,shared*recipe.inputs.left.operators.z))
     model = build(device,recipe)
-    @test model.parameters[shared] == 3.
+    @test model.resolved_parameters[shared] == 3.
     @test model.spectrum ≈ [-9,-3,3,9]
     @test_throws ArgumentError build(device,recipe;parameters=Dict(shared=>NaN))
     @test_throws ArgumentError build(device,recipe;parameters=Dict(shared=>aliases["EC"]))
-    @test_throws ArgumentError Interaction(:bad,shared*op(:left,:z),Dict(shared=>2.);parameters=Dict(shared=>3.))
-    @test isempty(Interaction(:missing,shared*op(:left,:z)).parameters)
-    @test_throws ArgumentError Interaction(:extra,shared*op(:left,:z),Dict(shared=>2.,aliases["EC"]=>.25))
-    @test_throws ArgumentError Interaction(:composite,shared*op(:left,:z),Dict(shared+1=>2.))
+    @test_throws ArgumentError Interaction(:bad,shared*op(:left,:z),Dict(shared=>2.))
+    @test !hasproperty(Interaction(:missing,shared*op(:left,:z)), :parameters)
+    @test_throws ArgumentError build(device,recipe;parameters=Dict(aliases["EC"]=>.25))
+    @test_throws ArgumentError build(device,recipe;parameters=Dict(shared+1=>2.))
     pulse = Pulse(Constant(;duration=1.);duration=1.,amplitude=1.)
     @test_throws ArgumentError Control(:composite,shared+1,pulse)
     @test_throws ArgumentError Control(:constant,Symbolics.Num(2),pulse)
     Symbolics.@variables τ dependent(τ)
     @test_throws ArgumentError Control(:dependent,dependent,pulse)
-    @test_throws ArgumentError Interaction(:dependent,dependent*op(:left,:z),Dict(dependent=>1.))
+    @test_throws ArgumentError Interaction(:dependent,dependent*op(:left,:z))
 
     a,b = op(:a,:x),op(:b,:x)
     operators=Dict(OperatorRef(:a,:x)=>QT.destroy(3),OperatorRef(:b,:x)=>QT.num(3))
@@ -95,9 +95,9 @@
 
     saved=add_recipe!(device,:saved,recipe)
     trial=draft(saved)
-    @test isequal(only(keys(trial.parameters)),shared)
-    trial.parameters[shared]=4.
-    @test saved.parameters[shared]==3.
+    @test isequal(only(keys(trial.overrides)),shared)
+    trial.overrides[shared]=4.
+    @test saved.overrides[shared]==3.
     prepared=build(device,GateRecipe(saved;duration=1.))
     context=prepared.context
     @test isequal(context.components[:left].variables["frequency"],shared)

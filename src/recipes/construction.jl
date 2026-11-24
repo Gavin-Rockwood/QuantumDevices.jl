@@ -78,7 +78,7 @@ function inherited_recipe(device, inputs::NamedTuple;
         allunique(localowners) || throw(ArgumentError("overlapping upstream input components at $alias"))
         isempty(intersect(owners, localowners)) || throw(ArgumentError("overlapping input components at $alias"))
         append!(owners, localowners)
-        push!(bindings, InputBinding(alias, source, localowners, scope, operators))
+        push!(bindings, InputBinding(alias, isnothing(device) ? source : copy_recipe_tree(device,source,false), localowners, scope, operators))
     end
     selections = Dict{Symbol, Any}()
     requests = if states isa AbstractDict
@@ -136,7 +136,7 @@ function CompositeRecipe(
             throw(ArgumentError("overlapping input components at $alias"))
         append!(covered, owners)
         operators = declarations.operators
-        push!(bindings, InputBinding(alias, source, owners, scope, operators))
+        push!(bindings, InputBinding(alias, copy_recipe_tree(device,source,false), owners, scope, operators))
     end
     automatic = [n for n in names if !(n in covered)]
     isempty(intersect(collect(keys(inputs)), automatic)) ||
@@ -158,7 +158,7 @@ function CompositeRecipe(
             bindings,
             InputBinding(
                 name,
-                Leaf(component = name, dimension = get(dimensions, name, nothing)),
+                Leaf(component = name, dimension = get(dimensions, name, nothing), input_defaults=capture_leaf_inputs(component)),
                 [name],
                 scope,
                 operators,
@@ -188,10 +188,6 @@ function finish_recipe(device, components, bindings, states;
         Dict{Num, Number}(parameters), Interaction[], max_dimension, scope, dressing, dressing_options,
         _capture_recipe_maps(device,bindings,control_maps,components))
     attach_interactions!(device, recipe, interactions)
-    sources = recipe_default_sources(device, recipe)
-    if !isnothing(device)
-        append!(sources, device_default_sources(device))
-    end
-    validate_default_sources(sources)
+    isnothing(device) || validate_component_input_defaults(device.components)
     return recipe
 end

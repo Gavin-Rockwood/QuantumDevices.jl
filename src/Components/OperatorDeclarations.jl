@@ -20,7 +20,8 @@ end
 Base.setindex!(map::OperatorDeclarations, value, key) = setindex!(editable_operator_entries(map),value,key)
 # A factory may be replaced for an existing declaration; its local key is fixed.
 # Physical identity is carried by the separate, fully frozen symbolic map.
-function Base.setindex!(map::OperatorDeclarations{OperatorGenerator}, value::OperatorGenerator, key::String)
+function Base.setindex!(map::OperatorDeclarations{Function}, value::Function, key::String)
+    applicable(value, 1) || throw(ArgumentError("operator generators must accept a dimension"))
     if map.entries isa Tuple
         haskey(map,key) || throw(ArgumentError("registered operator generator keys are immutable"))
         setfield!(map,:entries,Tuple(name => (name == key ? value : generator) for (name,generator) in map))

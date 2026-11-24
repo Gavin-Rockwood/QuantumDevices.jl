@@ -61,7 +61,8 @@ recipe = Recipe(device,[transmon,resonator];
 n = recipe.inputs.transmon.operators.charge
 a = recipe.inputs.resonator.operators.a
 g = Symbolics.variable(:charge_coupling)
-add_interaction!(recipe,Interaction(:coupling,g*n*(1im*(a-a'));parameters=Dict(g=>coupling)))
+recipe.parameters[g] = coupling
+add_interaction!(recipe,Interaction(:coupling,g*n*(1im*(a-a'))))
 model = build(device,recipe)
 @assert length(model.spectrum) == 100
 ge_states = [(0,0),(1,0)]
@@ -78,14 +79,16 @@ ef_frequency = abs(stateenergy(model,ef_states[2])-stateenergy(model,ef_states[1
 #
 # ## 3. Prepare the transmon π pulses
 #
-# A charge drive is an extra Hamiltonian term, with its own zero idle default.
+# A charge drive adds a term; its gate-owned recipe supplies the zero idle value.
 # Gaussian remains the original truncated Gaussian, not a zero-ended replacement.
 # A positional carrier uses cosine: `phase=-pi/2` preserves the original sine.
 
 qubit_duration = 92.96875
 qubit_sigma = qubit_duration/4
 amplitude = Symbolics.variable(:microwave_amplitude)
-drive = Interaction(:charge_drive,amplitude*n;parameters=Dict(amplitude=>0.0))
+drive_recipe = draft(recipe)
+drive_recipe.parameters[amplitude] = 0.0
+drive = Interaction(:charge_drive,amplitude*drive_recipe.inputs.transmon.operators.charge)
 shape = Gaussian(;duration=qubit_duration,sigma=qubit_sigma)
 pulse_times = range(0,qubit_duration;length=201)
 control_figure = Figure(size=(720,300))
@@ -120,7 +123,7 @@ population_exchange_cost(target,M) = 1-(abs2(M.data[2,1])+abs2(M.data[1,2]))/2
 x_target = ComplexF64[0 1;1 0]
 evolution_options = (;abstol=1e-8,reltol=1e-8,energy_shift=:auto)
 ge_pulse = Pulse(shape,ge_frequency;amplitude=0.004573,phase=-pi/2)
-ge_recipe = GateRecipe(recipe;terms=[drive],controls=[Control(:drive,amplitude,ge_pulse)])
+ge_recipe = GateRecipe(drive_recipe;terms=[drive],controls=[Control(:drive,amplitude,ge_pulse)])
 ge_prepared = build(device,ge_recipe)
 ge_trial = evolve(ge_prepared;states=ge_states,saveat=pulse_times,evolution_options...)
 ge_before = [abs2(gate_matrix(ge_trial;step=i).data[2,1]) for i in eachindex(ge_trial.times)]
@@ -161,7 +164,7 @@ ge_figure
 # envelope, target matrix and selected paths are reused.
 
 ef_pulse = Pulse(shape,ef_frequency;amplitude=0.00385,phase=-pi/2)
-ef_prepared = build(device,GateRecipe(recipe;terms=[drive],controls=[Control(:drive,amplitude,ef_pulse)]))
+ef_prepared = build(device,GateRecipe(drive_recipe;terms=[drive],controls=[Control(:drive,amplitude,ef_pulse)]))
 ef_trial = evolve(ef_prepared;states=ef_states,saveat=pulse_times,evolution_options...)
 ef_before = [abs2(gate_matrix(ef_trial;step=i).data[2,1]) for i in eachindex(ef_trial.times)]
 ef_fit = solve(CalibrationProblem(ef_prepared,selectors,x_target;
@@ -212,7 +215,7 @@ resonance_figure
 sideband_duration = 205.05411739244443
 sideband_shape = RampedFlattop(10.;duration=sideband_duration,ramp=:sine_squared)
 sb_pulse = Pulse(sideband_shape,resonance.frequency;amplitude=sideband_amplitude,phase=-pi/2)
-sb_prepared = build(device,GateRecipe(recipe;terms=[drive],controls=[Control(:drive,amplitude,sb_pulse)]))
+sb_prepared = build(device,GateRecipe(drive_recipe;terms=[drive],controls=[Control(:drive,amplitude,sb_pulse)]))
 sb_times = range(0,sideband_duration;length=1001)
 sb_trial = evolve(sb_prepared;states=sideband_states,saveat=sb_times,evolution_options...)
 sb_before = [abs2(gate_matrix(sb_trial;step=i).data[2,1]) for i in eachindex(sb_trial.times)]

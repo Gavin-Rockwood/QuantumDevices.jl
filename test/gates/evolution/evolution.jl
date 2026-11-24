@@ -62,9 +62,11 @@ end
     q = add_component!(device,make_qubit(:q;frequency=0.7))
     recipe = Recipe(device,[q])
     amplitude = Symbolics.variable(:amplitude)
-    term = Interaction(:drive,(amplitude)*recipe.inputs.q.operators.x;parameters=Dict(amplitude=>0.))
+    gate_recipe = draft(recipe)
+    gate_recipe.overrides[amplitude] = 0.
+    term = Interaction(:drive,(amplitude)*gate_recipe.inputs.q.operators.x)
     pulse = Pulse(Constant(;duration=0.2);duration=0.2,amplitude=0.3)
-    prepared = build(device,GateRecipe(recipe;terms=[term],controls=[Control(:drive,amplitude,pulse)]))
+    prepared = build(device,GateRecipe(gate_recipe;terms=[term],controls=[Control(:drive,amplitude,pulse)]))
     H = Matrix(make_hamiltonian(prepared)(nothing,0.1).data)
     result = evolve(prepared;abstol=1e-11,reltol=1e-11)
     @test unitary(result).data ≈ exp(-2pi*im*0.2*H) atol=1e-8
@@ -74,7 +76,7 @@ end
     sequence = PulseSequence(Pulse(Constant(;duration=0.03);duration=0.03,amplitude=0.3,delay=0.8),
         Pulse(Constant(;duration=0.04);duration=0.04,amplitude=-0.2,delay=0.5),
         Pulse(Constant(;duration=0.02);duration=0.02,amplitude=0.1);delay=0.2)
-    prepared = build(device,GateRecipe(recipe;terms=[term],controls=[Control(:drive,amplitude,sequence)],duration=2.))
+    prepared = build(device,GateRecipe(gate_recipe;terms=[term],controls=[Control(:drive,amplitude,sequence)],duration=2.))
     result = evolve(prepared;tstops=[0.5],abstol=1e-10,reltol=1e-10)
     stops = pulse_tstops(prepared)
     exact = Matrix{ComplexF64}(I,2,2)

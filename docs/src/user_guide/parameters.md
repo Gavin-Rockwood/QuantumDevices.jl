@@ -62,14 +62,26 @@ and rebuilds immutable structures; unchanged branches may remain shared. Use
 as a flat path-to-`(path, value)` discovery map. Physical
 Symbolics parameter maps are separate from this structural pulse-path interface.
 
-Shared physical defaults can be declared with
-`add_parameters!(device, Dict(EC1c=>4.3, EC2c=>4.5, EC12=>161.4))`.
-Component and interaction declarations remain separate; `device.parameters`
-returns a fresh string-keyed view of defaults, using full symbolic names such as
-`"EC_q1"`. Unassigned variables have value `missing`. `device.variables` uses
-the same keys and returns the corresponding Symbolics variables. Use `add_parameters!` for updates
-rather than mutating that view. Repeated equal defaults are permitted. Conflicting
-defaults always fail with both values and sources, before recipe/build overrides
-or controls are applied. Interaction defaults are optional until build, where
-missing values can be supplied by explicit overrides. Recipe-local interaction
-defaults stay local to that recipe.
+## Inspecting device inputs
+
+`device.variables` is a fresh dictionary from full symbolic names such as
+`"EC_q1"` to atomic `Num` variables. `device.parameters` has the same keys;
+each value is a dictionary grouping effective input values by their locations:
+
+```julia
+device.parameters["EC_q1"] # e.g. Dict(0.26 => [(source=:recipe, path=(:pair,), node=(:q1,))])
+```
+
+Locations identify the source category, repository path and recipe input path.
+An unresolved use is grouped under `missing`; a declaration unused by any
+inventoried root has an empty dictionary. Registered recipes, gates and supported
+historical snapshots contribute usages independently. Captured historical values
+are authoritative for those snapshots. Both views are independent read snapshots:
+editing their dictionaries or location vectors does not change the device.
+
+Component idle defaults remain on components. Interactions declare expressions
+and symbols; supply their values in recipe parameters or build overrides. To
+change a saved definition, edit a draft and register or replace it deliberately.
+For a gate-only scalar, put its value in the gate's embedded model recipe draft,
+leaving the registered base model unchanged. A missing static reference value
+remains missing even if a control replaces that coefficient at runtime.

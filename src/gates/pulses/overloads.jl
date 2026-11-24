@@ -64,7 +64,7 @@ function _validate_pulse_offset(offset)
 end
 function _reference_offset(offset, reference)
     offset isa Num || return offset
-    haskey(reference, offset) || throw(ArgumentError("pulse offset reference $offset is missing from model.parameters"))
+    haskey(reference, offset) || throw(ArgumentError("pulse offset reference $offset is missing from model.resolved_parameters"))
     return reference[offset]
 end
 function _resolve_pulse(p::PulseRecipe, reference)

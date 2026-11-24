@@ -29,14 +29,16 @@ end
     q = add_component!(device,make_qubit(:q;frequency=0.))
     recipe = Recipe(device,[q])
     amplitude = Symbolics.variable(:amplitude)
-    term = Interaction(:drive,(amplitude)*recipe.inputs.q.operators.x;parameters=Dict(amplitude=>0.))
+    gate_recipe = draft(recipe)
+    gate_recipe.overrides[amplitude] = 0.
+    term = Interaction(:drive,(amplitude)*gate_recipe.inputs.q.operators.x)
     pulse = Pulse(Constant(;duration=1.);duration=1.,amplitude=0.1)
-    working = GateRecipe(recipe;terms=[term],controls=[Control(:drive,amplitude,pulse)])
+    working = GateRecipe(gate_recipe;terms=[term],controls=[Control(:drive,amplitude,pulse)])
     calls = Ref(0)
     for (key,generator) in q.operator_generators
-        q.operator_generators[key] = OperatorGenerator(let factory=generator.f
+        q.operator_generators[key] = (let factory=generator
             (args...) -> (calls[] += 1; factory(args...))
-        end,generator.default_dimension)
+        end)
     end
     prepared = build(device,working)
     prepared_calls = calls[]
@@ -52,7 +54,7 @@ end
     @test problem.problem.f([0.1],nothing) > 0.1
     @test calls[] == prepared_calls
     interpolated = Pulse(InterpolatedEnvelope([0.,1.],[0.,1.];duration=1.);duration=1.)
-    interpolationgate = GateRecipe(recipe;terms=[term],controls=[Control(:drive,amplitude,interpolated)])
+    interpolationgate = GateRecipe(gate_recipe;terms=[term],controls=[Control(:drive,amplitude,interpolated)])
     interpolationproblem = CalibrationProblem(build(device,interpolationgate),
         ["drive/envelope/times/2","drive/duration"],target)
     simultaneous = calibrated_recipe(interpolationproblem,[2.,2.])
@@ -108,7 +110,7 @@ end
     @test isfinite(custom.problem.f([0.25],nothing))
     @test custom.states == [(1,),(0,)]
     nested = Pulse(DRAG(0.2;duration=1.,beta=0.1),0.5;duration=1.,amplitude=0.1)
-    nestedgate = GateRecipe(recipe;terms=[term],controls=[Control(:drive,amplitude,nested)])
+    nestedgate = GateRecipe(gate_recipe;terms=[term],controls=[Control(:drive,amplitude,nested)])
     @test haskey(calibration_parameters(nestedgate),"drive/carrier/frequency")
 
 

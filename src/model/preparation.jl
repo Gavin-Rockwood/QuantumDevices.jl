@@ -12,10 +12,9 @@ function prepare_captured_node(definition,components;enforce_limits=true,path="t
     if definition isa Leaf
         component = components[definition.component]
         generators = merge(component_operator_generators(component),definition.generators)
-        dimensions = unique(generator.default_dimension for generator in values(generators))
-        dimension = isnothing(definition.dimension) ?
-            (length(dimensions)==1 ? only(dimensions) : throw(ArgumentError("$path: ambiguous default dimensions"))) : definition.dimension
-        dimension > 0 || throw(ArgumentError("$path: dimension must be positive"))
+        dimension = isnothing(definition.dimension) ? component.dimension : definition.dimension
+        isnothing(dimension) && throw(ArgumentError("$path: specify Leaf.dimension or Component.dimension"))
+        dimension = validate_operator_dimension(dimension)
         return BuildNode(;definition,owners=[component.name],generators,
             relevant=Set{Num}(values(component.variables)),dimension,
             hamiltonian=component.hamiltonian,hamiltonian_terms=physical_terms(component.hamiltonian),
@@ -55,8 +54,11 @@ end
 
 # Prepare a captured reference, its operating point, and required model products.
 function prepare_node(device,recipe,parameters)
-    node = resolve_node(device,recipe)
-    node,resolved = prepare_parameters!(device,node,parameters)
+    validate_component_input_defaults(device.components)
+    components = Dict{Symbol,Component}()
+    captured = snapshot_recipe(device,recipe;components)
+    node = prepare_captured_node(captured,components)
+    node,resolved = prepare_parameters!(node,parameters;components)
     collect_required_products!(node)
     return node,resolved
 end

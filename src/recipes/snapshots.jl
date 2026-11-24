@@ -12,18 +12,17 @@ end
 
 # Snapshot collections are frozen; editable drafts thaw the same captured values.
 function copy_interaction(interaction::Interaction, frozen; old_scope = nothing, new_scope = nothing)
-    parameters = frozen ? RecipeMap(interaction.parameters) : Dict{String, Number}(interaction.parameters)
     metadata = freeze_recipe_value(interaction.metadata)
     if !frozen
         metadata = thaw_recipe_value(metadata)
     end
     variables = frozen ? RecipeMap(interaction.variables) : Dict{String, Num}(interaction.variables)
     expression = copy_expression(interaction.expression, old_scope, new_scope)
-    return Interaction(interaction.name, expression, variables, parameters, metadata)
+    return Interaction(interaction.name, expression, variables, metadata)
 end
 
 # Frozen storage is a provenance property, not proof of device compatibility.
-is_recipe_snapshot(recipe::Recipe) = recipe.parameters isa RecipeMap
+is_recipe_snapshot(recipe::Recipe) = recipe.overrides isa RecipeMap
 
 # Capture errors identify the occurrence being copied without a diagnostic object.
 capture_error(path, message) = throw(ArgumentError(join(path, " -> ") * ": " * message))
@@ -44,6 +43,7 @@ function capture_component!(components, device, name, path)
                 operators = component.operators,
                 operator_generators = component.operator_generators,
                 hamiltonian = component.hamiltonian,
+                dimension = component.dimension,
                 type = component.type,
                 label = component.label,
                 metadata = component.metadata)
@@ -93,30 +93,32 @@ function capture_recipe_tree(device, source, frozen, active, path, components)
     definition isa Recipe || capture_error(path, "expected a Recipe or registered name")
     any(item -> item === definition, active) && capture_error(path, "recipe cycle during capture")
     active = vcat(active, Any[definition])
-    parameters = frozen ? RecipeMap(definition.parameters) : Dict{Num, Number}(definition.parameters)
+    parameters = frozen ? RecipeMap(definition.overrides) : Dict{Num, Number}(definition.overrides)
     if definition isa Leaf
         operators = Dict{Symbol, Any}(definition.component => nothing)
         if !isnothing(device)
             component = capture_component!(components, device, definition.component, path)
+            isnothing(definition.input_defaults) || Set(keys(definition.input_defaults)) == Set(values(component.variables)) ||
+                capture_error(path,"component input declarations changed since recipe capture")
             operators[definition.component] = Set(Symbol.(keys(component.operators)))
         end
         for (ref, generator) in definition.generators
             ref isa OperatorRef && ref.owner == definition.component ||
                 capture_error(path, "generator override must belong to $(definition.component)")
-            generator isa OperatorGenerator || capture_error(path, "invalid operator generator override")
-            applicable(generator.f, something(definition.dimension, generator.default_dimension)) ||
+            generator isa Function || capture_error(path, "invalid operator generator override")
+            applicable(generator, something(definition.dimension, 1)) ||
                 capture_error(path, "operator generator must accept a dimension")
             names = operators[definition.component]
             isnothing(names) || ref.name in names ||
                 capture_error(path, "override refers to unknown operator $(ref.name)")
         end
-        generators = Dict{OperatorRef, OperatorGenerator}(
-            ref => OperatorGenerator(generator.f, generator.default_dimension)
+        generators = Dict{OperatorRef, Function}(
+            ref => generator
             for (ref, generator) in definition.generators)
-        kwargs = frozen ? freeze_recipe_value(definition.kwargs) : thaw_recipe_value(definition.kwargs)
-        captured = Leaf(definition.component, definition.dimension, kwargs,
+        captured = Leaf(definition.component, definition.dimension,
                         frozen ? RecipeMap(generators) : generators, parameters,
-                        _copy_recipe_maps(device,definition.control_maps,[definition.component],frozen))
+                        _copy_recipe_maps(device,definition.control_maps,[definition.component],frozen),
+                        isnothing(definition.input_defaults) ? (isnothing(device) ? nothing : capture_leaf_inputs(components[definition.component])) : definition.input_defaults)
         return (; recipe = captured, owners = [definition.component], operators, provenance = Set{Any}())
     end
     definition isa Union{CompositeRecipe, Combine} ||

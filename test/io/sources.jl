@@ -6,10 +6,7 @@
 struct Width
     value::Float64
 end
-struct Generator
-    scale::Float64
-end
-(g::Generator)(dimension;kwargs...)=error("Generator must not run during load")
+generator(scale::Float64) = dimension -> (scale; error("Generator must not run during load"))
 """)
     write(source,"""
 module PortableLabFixture
@@ -17,15 +14,15 @@ using QuantumDevices
 include("helpers.jl")
 register_io_codec!("test.portable.width",Width;version=1,
     encode=x->(;value=x.value),decode=c->Width(c.value),source_id="portable_lab")
-register_io_codec!("test.portable.generator",Generator;version=1,
-    encode=x->(;scale=x.scale),decode=c->Generator(c.scale),source_id="portable_lab")
+register_io_codec!("test.portable.generator",typeof(generator(1.));version=1,
+    encode=x->(;scale=x.scale),decode=c->generator(c.scale),source_id="portable_lab")
 end
 """)
     Base.include(Main,source)
     value=Main.PortableLabFixture.Width(.25)
     device=QuantumDevice(:custom;metadata=(;width=value))
     custom=make_resonator(:custom_generator;dimension=2)
-    custom.operator_generators["n"]=OperatorGenerator(Main.PortableLabFixture.Generator(2.),2)
+    custom.operator_generators["n"]=Main.PortableLabFixture.generator(2.)
     add_component!(device,custom)
     folder=joinpath(root,"bundle")
     @test_throws ArgumentError save_device(folder,device)
@@ -53,7 +50,7 @@ folder=ARGS[1]
 @test_throws ArgumentError load_device(folder)
 device=load_device(folder;allow_code=true)
 @test device.metadata.width.value==.25
-@test device.components[:custom_generator].operator_generators["n"].f.scale==2.
+@test device.components[:custom_generator].operator_generators["n"].scale==2.
 @test load_device(folder).metadata.width.value==.25
 save_device(ARGS[2],device)
 println("fresh custom source passed")

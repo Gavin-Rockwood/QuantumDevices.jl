@@ -12,6 +12,7 @@ import Symbolics
 
 # Shared helpers require the imports above and perform no work until called.
 include("fixtures/models.jl")
+include("fixtures/generator_records.jl")
 
 @testset "QuantumDevices" begin
     # Pulse definitions and physical parameter paths.
@@ -25,9 +26,12 @@ include("fixtures/models.jl")
     include("symbolics/expressions.jl")
     include("symbolics/parameters.jl")
     include("components/components.jl")
+    include("components/corrections.jl")
     include("components/transmons.jl")
     include("device/operator_registry.jl")
     include("device/interactions.jl")
+    include("device/parameter_inventory.jl")
+    include("device/recipe_parameter_views.jl")
     include("control_maps.jl")
 
     # Captured definitions and numerical construction.
@@ -73,6 +77,9 @@ include("fixtures/models.jl")
 
     include("io/pulses.jl")
     include("io/device.jl")
+    include("io/generators.jl")
+    include("io/parameter_migration.jl")
+    include("io/recipe_input_migration.jl")
     include("io/values.jl")
     include("io/sources.jl")
     include("io/safety.jl")

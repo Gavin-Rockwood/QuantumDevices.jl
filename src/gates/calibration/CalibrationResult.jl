@@ -49,7 +49,7 @@ function CalibrationResult(problem::CalibrationProblem, solution)
     source = problem.prepared
     prepared = PreparedGate(recipe,deepcopy(source.model),deepcopy(source.terms),
                             copy(source.parameters),deepcopy(source.context))
-    reference = _gate_reference(prepared.model)
+    reference = _gate_reference(prepared.model;parameters=prepared.parameters)
     states = _gate_kets(reference,problem.states)
     provenance = (;prepared,objective=problem.objective,
         original_states=deepcopy(problem.state_spec.original_states))

@@ -4,8 +4,10 @@
     q = add_component!(device,make_qubit(:q;frequency=0.7))
     recipe = Recipe(device,[q])
     amplitude = Symbolics.variable(:vacuum_drive)
-    term = Interaction(:drive,amplitude*recipe.inputs.q.operators.x;parameters=Dict(amplitude=>0.0))
-    gate = QuantumGate(:drive,GateRecipe(recipe;terms=[term],controls=[
+    gate_recipe = draft(recipe)
+    gate_recipe.overrides[amplitude] = 0.0
+    term = Interaction(:drive,amplitude*gate_recipe.inputs.q.operators.x)
+    gate = QuantumGate(:drive,GateRecipe(gate_recipe;terms=[term],controls=[
         Control(:drive,amplitude,Pulse(Constant(;duration=0.13);duration=0.13,amplitude=0.1))]))
     prepared = build(device,gate)
     settings = (;saveat=[0.0,0.04,0.13],abstol=1e-11,reltol=1e-11)

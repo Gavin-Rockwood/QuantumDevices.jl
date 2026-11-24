@@ -4,7 +4,6 @@ struct QuantumDevice{G<:AbstractDict}
     components::Dict{Symbol, Component}
     interactions::Dict{Symbol, Interaction}
     recipes::Dict{Symbol, Recipe}
-    explicit_parameters::Dict{Num,Number}
     operators::OperatorRegistry
     interactions_for::InteractionMembership
     interaction_components::InteractionMembership
@@ -16,16 +15,15 @@ end
 function QuantumDevice(name; metadata = (;))
     registry = OperatorRegistry()
     return QuantumDevice(name, Dict{Symbol,Component}(), Dict{Symbol,Interaction}(),
-        Dict{Symbol,Recipe}(), Dict{Num,Number}(), registry,
+        Dict{Symbol,Recipe}(), registry,
         InteractionMembership(:components,registry), InteractionMembership(:interactions,registry), metadata,
         Dict{Symbol,AbstractControlMap}(), Dict{Symbol,Union{Dict,QuantumGate}}())
 end
 
 # Reconstruct derived indexes through the same validated registration path.
 function QuantumDevice(name, components::AbstractDict, interactions::AbstractDict,
-    recipes::AbstractDict, explicit_parameters::AbstractDict, metadata::NamedTuple)
+    recipes::AbstractDict, metadata::NamedTuple)
     device = QuantumDevice(name; metadata)
-    add_parameters!(device,explicit_parameters)
     for component in values(components)
         add_component!(device,component)
     end
@@ -38,12 +36,13 @@ end
 
 """Rebuild an independent device and its indexes from a saved physical gate context."""
 function QuantumDevice(context::NamedTuple)
+    haskey(context,:explicit_parameters) && !isempty(context.explicit_parameters) &&
+        throw(ArgumentError("old context defaults require recipe-value migration through load_device"))
     device = QuantumDevice(context.name; metadata=thaw_recipe_value(context.metadata))
-    add_parameters!(device,Dict(context.explicit_parameters))
     for c in values(context.components)
         component = Component(c.name; variables=c.variables, parameters=c.parameters,
             operators=c.operators, operator_generators=c.operator_generators,
-            hamiltonian=c.hamiltonian, type=c.type, label=c.label,
+            hamiltonian=c.hamiltonian, dimension=c.dimension, type=c.type, label=c.label,
             metadata=thaw_recipe_value(c.metadata))
         add_component!(device,component)
     end
@@ -58,13 +57,8 @@ function QuantumDevice(context::NamedTuple)
     return device
 end
 
-# Preserve the previous direct field constructor; derived indexes remain supplied by its caller.
-QuantumDevice(name::Symbol,components::Dict{Symbol,Component},interactions::Dict{Symbol,Interaction},
-    recipes::Dict{Symbol,Recipe},explicit_parameters::Dict{Num,Number},operators::OperatorRegistry,
-    interactions_for::InteractionMembership,interaction_components::InteractionMembership,metadata::NamedTuple) =
-    QuantumDevice(name,components,interactions,recipes,explicit_parameters,operators,
-        interactions_for,interaction_components,metadata,Dict{Symbol,AbstractControlMap}(),Dict{Symbol,Union{Dict,QuantumGate}}())
-
-# Preserve the previous complete field constructor with an empty registry.
-QuantumDevice(name,components,interactions,recipes,explicit_parameters,operators,interactions_for,interaction_components,metadata,gates::AbstractDict) =
-    QuantumDevice(name,components,interactions,recipes,explicit_parameters,operators,interactions_for,interaction_components,metadata,Dict{Symbol,AbstractControlMap}(),gates)
+# Removed default repositories must never be silently discarded by an old caller.
+function QuantumDevice(name,components::AbstractDict,interactions::AbstractDict,recipes::AbstractDict,defaults::AbstractDict,metadata::NamedTuple)
+    isempty(defaults) || throw(ArgumentError("device defaults were removed; supply values in owning recipe parameters"))
+    return QuantumDevice(name,components,interactions,recipes,metadata)
+end

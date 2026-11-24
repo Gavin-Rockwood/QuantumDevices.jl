@@ -41,7 +41,7 @@
     @test sprint(show,same) == "q1.operators.q1.charge"
     exact=String(latex(a;labels=Dict(a=>LaTeXStrings.L"Z")))
     @test exact == "\$Z\$"
-    i=Interaction(:drive,(p)*x;parameters=Dict(p=>0.2))
+    i=Interaction(:drive,(p)*x)
     @test occursin("H_{",tex(i)) && !occursin("parameters",tex(i))
     @test occursin("e",tex(val(exp(p))))
 end
@@ -49,12 +49,13 @@ end
 @testset "read-only summaries and recipe graphs" begin
     calls=Ref(0)
     d=QuantumDevice(:inspection)
-    generator=OperatorGenerator((dim;kwargs...)->(calls[]+=1;error("display invoked generator")),9)
+    generator=(dim->(calls[]+=1;error("display invoked generator")))
     q=add_component!(d,Component(:q,(EC=Symbolics.variable(:q_EC),),Dict(Symbolics.variable(:q_EC)=>.2),
-        Dict(OperatorRef(:q,:charge)=>generator),op(:q,:charge),"custom transmon","alternate label",(;)))
+        Dict(OperatorRef(:q,:charge)=>generator),op(:q,:charge),"custom transmon","alternate label",(;);dimension=9))
     r=Recipe(d,[q];initial_dims=Dict(q=>31),states=Dict(q=>[3,0,2]),max_dimension=0)
     g=Symbolics.variable(:g)
-    add_interaction!(r,Interaction(:local,(g)*r.inputs.q.operators.charge;parameters=Dict(g=>.1)))
+    r.overrides[g] = .1
+    add_interaction!(r,Interaction(:local,(g)*r.inputs.q.operators.charge))
     add_recipe!(d,:r,r)
     plain(x)=repr(MIME"text/plain"(),x)
     @test occursin("none",plain(QuantumDevice(:empty)))
@@ -67,7 +68,7 @@ end
     @test occursin("[3, 0, 2]",plain(r))
     @test occursin("unlimited",plain(r))
     @test occursin("local",plain(r))
-    @test occursin("idle parameters",plain(only(r.interactions)))
+    @test occursin("inputs",plain(only(r.interactions)))
     @test !occursin("\n",sprint(show,r))
     @test !occursin("\n",repr(MIME"text/plain"(),r;context=:compact=>true))
     @test occursin("Projected dimension: 3",plain(graph(d,r)))
@@ -97,7 +98,7 @@ end
     limited=IOContext(IOBuffer(),:limit=>true,:displaysize=>(9,40))
     @test occursin("20 total",QuantumDevices.list_summary(limited,1:20))
     @test calls[]==0
-    @test only(r.interactions).parameters[string(g)]==.1 && isempty(r.parameters)
+    @test r.overrides[g]==.1 && !hasproperty(only(r.interactions),:parameters)
     @test r.states[:q]==[3,0,2]
     @test occursin("upstream inputs",plain(graph(d,r)))
     @test !occursin("\n",sprint(show,graph(d,r)))

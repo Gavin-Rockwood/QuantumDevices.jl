@@ -8,7 +8,7 @@ function _validate_stored_model(model,path)
     for operator in Iterators.flatten((values(model.operators),values(model.operator_products)))
         size(operator)==(n,n) && operator.dimensions==model.H.dimensions || _ioerror(path,"cached operator basis differs from stored H")
     end
-    validate_parameter_values(model.parameters)
+    validate_parameter_values(model.resolved_parameters)
     return model
 end
 function _validate_stored_prepared(prepared,path)
@@ -106,7 +106,7 @@ function _validate_recipe_context(recipe,device,path,active=Base.IdSet())
     end
 end
 function _validate_device_definitions(device)
-    validate_default_sources(device_default_sources(device))
+    validate_component_input_defaults(device.components)
     for (name,map) in device.control_maps
         name === map.name || _ioerror("control_maps/$name","registry name mismatch")
         _validate_control_map_outputs(map,_recipe_map_variables(device,keys(device.components)))

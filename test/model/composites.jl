@@ -14,7 +14,8 @@
     @test :operators in propertynames(pair.inputs.q1)
     @test startswith(sprint(show,pair), "Recipe(")
     g = Symbolics.variable(:local_g)
-    add_interaction!(pair,Interaction(:coupling,(g)*pair.inputs.q1.operators.x*pair.inputs.q2.operators.x;parameters=Dict(g=>.13)))
+    pair.overrides[g] = .13
+    add_interaction!(pair,Interaction(:coupling,(g)*pair.inputs.q1.operators.x*pair.inputs.q2.operators.x))
     @test isempty(d.interactions)
     @test_throws ArgumentError add_interaction!(d,Interaction(:bound,pair.inputs.q1.operators.z))
     @test_throws ArgumentError add_interaction!(pair,Interaction(:coupling,pair.inputs.q1.operators.z))
@@ -25,14 +26,14 @@
     reference = 4.7/2*QT.tensor(QT.sigmaz(),QT.qeye(2)) +
         6.1/2*QT.tensor(QT.qeye(2),QT.sigmaz()) + .13*QT.tensor(QT.sigmax(),QT.sigmax())
     @test model.spectrum ≈ real.(QT.eigenenergies(reference))
-    @test model.parameters[g] == .13
+    @test model.resolved_parameters[g] == .13
     @test input_basis_map(model).dims == ([2,2],[4])
     @test all(x -> x isa QT.QuantumObject,values(model.operator_products))
     @test all(x -> x.dims == ([2,2],[2,2]),values(model.operators))
     @test all(r -> r isa OperatorRef,QuantumDevices.refs(model.hamiltonian,:op))
-    @test evaluate(model.hamiltonian,model.parameters,Dict(OperatorRef(:q1,:z)=>QT.tensor(QT.sigmaz(),QT.qeye(2)),OperatorRef(:q2,:z)=>QT.tensor(QT.qeye(2),QT.sigmaz()),OperatorRef(:q1,:x)=>QT.tensor(QT.sigmax(),QT.qeye(2)),OperatorRef(:q2,:x)=>QT.tensor(QT.qeye(2),QT.sigmax()))) ≈ reference
+    @test evaluate(model.hamiltonian,model.resolved_parameters,Dict(OperatorRef(:q1,:z)=>QT.tensor(QT.sigmaz(),QT.qeye(2)),OperatorRef(:q2,:z)=>QT.tensor(QT.qeye(2),QT.sigmaz()),OperatorRef(:q1,:x)=>QT.tensor(QT.sigmax(),QT.qeye(2)),OperatorRef(:q2,:x)=>QT.tensor(QT.qeye(2),QT.sigmax()))) ≈ reference
     @test build(d,pair;parameters=Dict(g=>0)).spectrum ≈ real.(QT.eigenenergies(reference - .13*QT.tensor(QT.sigmax(),QT.sigmax())))
-    @test only(pair.interactions).parameters[string(g)] == .13
+    @test pair.overrides[g] == .13
     add_recipe!(d,:pair,pair)
     target = Recipe(d,[q1,q2,q3];inputs=(group=:pair,),states=Dict(:group=>[3,0],q3=>[1]))
     @test keys(target.inputs) == (:group,:q3)
@@ -116,37 +117,38 @@ end
     leaf = Leaf(component=:q,parameters=Dict(p=>5.1))
     child = Recipe(d,[q];inputs=(q=leaf,),parameters=Dict(p=>5.2))
     localp = Symbolics.variable(:local_only)
-    add_interaction!(child,Interaction(:shift,(localp)*child.inputs.q.operators.z;parameters=Dict(localp=>.2)))
+    child.overrides[localp] = .2
+    add_interaction!(child,Interaction(:shift,(localp)*child.inputs.q.operators.z))
     parent = Recipe(d,[q];inputs=(child=child,),parameters=Dict(p=>5.3,localp=>.3))
     model = build(d,parent;parameters=Dict(p=>5.4,localp=>.4))
-    @test model.parameters[p] == 5.4
-    @test model.parameters[localp] == .4
-    @test model.recipe.inputs[1].second.parameters[localp] == .4
-    @test !haskey(model.recipe.inputs[1].second.inputs[1].second.parameters,localp)
-    @test build(d,parent).parameters[p] == 5.3
-    @test build(d,child).parameters[p] == 5.2
-    @test build(d,leaf).parameters[p] == 5.1
-    @test leaf.parameters[p] == 5.1
+    @test model.resolved_parameters[p] == 5.4
+    @test model.resolved_parameters[localp] == .4
+    @test model.recipe.inputs[1].second.resolved_parameters[localp] == .4
+    @test !haskey(model.recipe.inputs[1].second.inputs[1].second.resolved_parameters,localp)
+    @test build(d,parent).resolved_parameters[p] == 5.3
+    @test build(d,child).resolved_parameters[p] == 5.2
+    @test build(d,leaf).resolved_parameters[p] == 5.1
+    @test leaf.overrides[p] == 5.1
     @test q.parameters["ν"] == 5
-    @test only(child.interactions).parameters[string(localp)] == .2
+    @test child.overrides[localp] == .2
     second = Recipe(d,[q];inputs=(child=child,),parameters=Dict(p=>6.3))
     first_model,second_model = build(d,parent),build(d,second)
-    @test first_model.parameters[p] == 5.3
-    @test second_model.parameters[p] == 6.3
+    @test first_model.resolved_parameters[p] == 5.3
+    @test second_model.resolved_parameters[p] == 6.3
     @test first_model.recipe.inputs[1].second !== second_model.recipe.inputs[1].second
     unrelated = add_component!(d,make_qubit(:unrelated))
-    @test !haskey(build(d,parent;parameters=Dict(unrelated.variables["ν"]=>9)).parameters,unrelated.variables["ν"])
+    @test_throws ArgumentError build(d,parent;parameters=Dict(unrelated.variables["ν"]=>9))
     @test_throws ArgumentError build(d,parent;parameters=Dict(Symbolics.variable(:unknown)=>2))
     @test_throws ArgumentError build(d,Recipe(d,[q];parameters=Dict(Symbolics.variable(:unknown)=>2)))
     # Two physical components sharing a parameter must resolve the same value.
     common = Symbolics.variable(:common)
     function shared_component(name)
-        Component(name,(frequency=common,),Dict(common=>1.),Dict(OperatorRef(name,:z)=>OperatorGenerator((dim;kwargs...)->QT.sigmaz(),2)),(common)*op(name,:z),"custom",nothing,(;))
+        Component(name,(frequency=common,),Dict(common=>1.),Dict(OperatorRef(name,:z)=>(dim->QT.sigmaz())),(common)*op(name,:z),"custom",nothing,(;);dimension=2)
     end
     a=add_component!(d,shared_component(:a));b=add_component!(d,shared_component(:b))
     conflicting = Recipe(d,[a,b];inputs=(a=Leaf(component=:a,parameters=Dict(common=>2)),b=Leaf(component=:b,parameters=Dict(common=>3))))
     @test_throws ArgumentError build(d,conflicting)
-    @test build(d,conflicting;parameters=Dict(common=>4)).parameters[common] == 4
+    @test build(d,conflicting;parameters=Dict(common=>4)).resolved_parameters[common] == 4
     # Identical labels in unrelated local scopes are legal.
     ca=Recipe(d,[a]);cb=Recipe(d,[b])
     add_interaction!(ca,Interaction(:same,ca.inputs.a.operators.z))
@@ -191,7 +193,8 @@ end
     q3=add_component!(d,make_transmon(:q3,.25,16.;dimension=11))
     pair=Recipe(d,[q1,q2];initial_dims=Dict(q1=>11,q2=>11),states=Dict(q1=>0:2,q2=>0:2))
     g12=Symbolics.variable(:g12)
-    add_interaction!(pair,Interaction(:coupling12,(g12)*pair.inputs.q1.operators.charge*pair.inputs.q2.operators.charge;parameters=Dict(g12=>.02)))
+    pair.overrides[g12] = .02
+    add_interaction!(pair,Interaction(:coupling12,(g12)*pair.inputs.q1.operators.charge*pair.inputs.q2.operators.charge))
     leaves=[build(d,Leaf(component=q.name,dimension=11)) for q in (q1,q2,q3)]
     select=QuantumDevices.selection(11,[1,2,3]);eye=QT.qeye(3)
     charges=[select'*input_basis_map(leaf)'*leaf.operators[OperatorRef(q.name,:charge)]*input_basis_map(leaf)*select for (q,leaf) in zip((q1,q2,q3),leaves)]
@@ -203,7 +206,8 @@ end
     @test pairmodel.operators[OperatorRef(:q2,:charge)] ≈ QT.tensor(eye,charges[2])
     target=Recipe(d,[q1,q2,q3];inputs=(pair=pair,),initial_dims=Dict(q3=>11),states=Dict(:pair=>[0,2,1,4],q3=>0:2))
     g23=Symbolics.variable(:g23)
-    add_interaction!(target,Interaction(:coupling23,(g23)*target.inputs.pair.operators.q2.charge*target.inputs.q3.operators.charge;parameters=Dict(g23=>.015)))
+    target.overrides[g23] = .015
+    add_interaction!(target,Interaction(:coupling23,(g23)*target.inputs.pair.operators.q2.charge*target.inputs.q3.operators.charge))
     add_recipe!(d,:target,target)
     model=build(d,:target)
     keep=[1,3,2,5];groupselect=QuantumDevices.selection(9,keep)
@@ -215,7 +219,7 @@ end
     @test all(x->x isa QT.QuantumObject,values(model.operators))
     @test length(d.recipes) == 1
     @test length(d.interactions) == 0
-    @test model.parameters[g12] == .02
-    @test model.parameters[g23] == .015
+    @test model.resolved_parameters[g12] == .02
+    @test model.resolved_parameters[g23] == .015
     @test get_hamiltonian(d,:target) isa Sym
 end

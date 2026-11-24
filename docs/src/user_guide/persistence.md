@@ -107,3 +107,52 @@ adapters, preserving physical widths, off-center Gaussian positions and callback
 conventions. They do not gain inferred regions or adopt normalized stretching.
 Unknown versions and unexpected fields are rejected. New custom callbacks use
 `f(parameters,u)` and portable bundles still require registered callable codecs.
+
+## Operator functions and older folders
+
+Schema 4 stores builtin operator functions by fixed library IDs and one default
+`Component.dimension`. Generator dictionary entries are ordinary functions called
+as `function(effective_dimension)`. Custom functions and closures need explicit
+IO codecs; arbitrary closures are not automatically portable, and captured
+external mutable state is not frozen.
+
+Schemas 1, 2, and 3 are upgraded from verified records without generating matrices.
+Legacy per-operator defaults are resolved in each saved physical context and
+materialized on recipes where needed. Shared recipe records under different
+contexts retain their own effective cutoffs. Legacy builtin kwargs, which those
+functions ignored, can be discarded. Nonempty custom generator kwargs, missing
+context for implicit dimensions, ambiguous defaults, or opaque legacy codecs
+produce an actionable error: supply an explicit cutoff or adapt the configured
+factory to a one-argument function and resave with the older environment.
+Legacy standalone numerical model/evolution artifacts with implicit recipe cutoffs
+need their own captured physical context or an explicit cutoff; current device
+defaults cannot establish their historical basis.
+Loading does not rewrite the folder; saving writes schema 4 with new content IDs.
+
+## Recipe-owned inputs and migration reports
+
+Component `parameters` remain idle defaults. Device-wide and interaction-owned
+value repositories have been removed; numerical values belong in the owning
+recipe's `parameters` or a build call. `device.variables` discovers full symbolic
+input names. `device.parameters` groups each effective value (or `missing`) with
+plain `(source, path, node)` locations across current recipes, nested gates,
+calibration snapshots, typed model/evolution artifacts, and derived map baselines.
+Unused declarations have empty usage maps. These are independent read snapshots,
+not editable default repositories or stored caches.
+
+Schema 4 migration materializes removed old defaults in their owning recipes,
+keeps explicit and historical build assignments, and creates gate-owned endpoint
+copies for gate-only inputs. Saved contexts remain independent of current device
+values. Stored numerical arrays are preserved; unavailable old evolution gate
+baselines can remain `missing` in inventory without invalidating propagators.
+
+```julia
+report = NamedTuple[]
+restored = load_device("devices/my_device"; migration_report=report)
+```
+
+The optional report records dropped unused defaults and unavailable historical
+baselines. Without a report vector, loading emits one informational summary only
+when such notices exist. Loading never rewrites the folder; a subsequent save
+writes schema 4 and regenerates content IDs. Custom codecs and bundled-source
+consent retain their existing requirements.

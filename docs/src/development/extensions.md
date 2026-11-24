@@ -10,9 +10,9 @@ using QuantumDevices
 import QuantumToolbox as QT
 variables, idle = component_parameters(:custom; gap=1.0)
 operators, operator_generators = component_operators(:custom;
-    z=OperatorGenerator((d;kwargs...)->QT.sigmaz(),2))
+    z=dimension -> QT.sigmaz())
 custom = Component(:custom; variables, parameters=idle, operators, operator_generators,
-    hamiltonian=0.5variables["gap"] * operators["z"])
+    dimension=2, hamiltonian=0.5variables["gap"] * operators["z"])
 device = QuantumDevice(:example)
 add_component!(device, custom)
 model = build(device, Recipe(device,[custom]))

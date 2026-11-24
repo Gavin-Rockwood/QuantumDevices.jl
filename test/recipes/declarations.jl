@@ -1,11 +1,11 @@
 @testset "recipe declarations and lookup boundaries" begin
     function collision_component(name)
         operators, generators = component_operators(name;
-            owner = OperatorGenerator(n -> QT.sigmaz(), 2),
-            binding = OperatorGenerator(n -> QT.sigmax(), 2),
-            x = OperatorGenerator(n -> QT.sigmay(), 2))
+            owner = (n -> QT.sigmaz()),
+            binding = (n -> QT.sigmax()),
+            x = (n -> QT.sigmay()))
         return Component(name; variables = Dict(), parameters = Dict(), operators,
-            operator_generators = generators, hamiltonian = operators["owner"])
+            operator_generators = generators, dimension=2, hamiltonian = operators["owner"])
     end
     device = QuantumDevice(:recipe_rebuild)
     q = add_component!(device, collision_component(:q))
@@ -27,17 +27,29 @@
     defaults_device = QuantumDevice(:recipe_defaults_rebuild)
     qubit = add_component!(defaults_device, make_qubit(:q; frequency = 1.0))
     frequency = qubit.variables["ν"]
-    conflict = Interaction(:conflict, frequency * qubit.operators["x"];
-                           parameters = Dict(frequency => 2.0))
-    @test_throws ArgumentError Recipe(defaults_device, [qubit]; interactions = [conflict])
+    shift = Interaction(:shift, frequency * qubit.operators["x"])
+    assigned = Recipe(defaults_device, [qubit]; interactions = [shift],
+                      parameters = Dict(frequency => 2.0))
+    @test build(defaults_device, assigned).resolved_parameters[frequency] == 2.0
+    @test qubit.parameters["ν"] == 1.0
     upstream = Recipe(defaults_device, [qubit])
-    @test_throws ArgumentError Recipe(defaults_device, upstream; interactions = [conflict])
-    # Device-less declarations defer unknown component defaults to a later build.
-    deferred = Recipe(upstream; interactions = [conflict])
-    @test_throws ArgumentError build(defaults_device, deferred)
-    conflict2 = Interaction(:conflict2, frequency * qubit.operators["x"];
-                            parameters = Dict(frequency => 3.0))
-    @test_throws ArgumentError Recipe(deferred; interactions = [conflict2])
+    inherited = Recipe(defaults_device, upstream; interactions = [shift],
+                       parameters = Dict(frequency => 2.0))
+    inherited_model = build(defaults_device, inherited)
+    @test inherited_model.resolved_parameters[frequency] == 2.0
+    @test only(inherited_model.recipe.inputs).second.resolved_parameters[frequency] == 2.0
+    # Device-less declarations retain recipe assignments for a later build.
+    deferred = Recipe(upstream; interactions = [shift], parameters = Dict(frequency => 2.0))
+    @test build(defaults_device, deferred).H ≈ inherited_model.H
+    second_shift = Interaction(:second_shift, frequency * qubit.operators["x"])
+    overridden = Recipe(deferred; interactions = [second_shift], parameters = Dict(frequency => 3.0))
+    @test build(defaults_device, overridden).resolved_parameters[frequency] == 3.0
+    @test build(defaults_device, deferred).resolved_parameters[frequency] == 2.0
+    # A newly declared interaction input remains unresolved until supplied.
+    coupling = Symbolics.variable(:deferred_coupling)
+    unresolved = Recipe(upstream; interactions = [Interaction(:unresolved, coupling * qubit.operators["x"])])
+    @test_throws ArgumentError build(defaults_device, unresolved)
+    @test build(defaults_device, unresolved; parameters = Dict(coupling => 0.2)).resolved_parameters[coupling] == 0.2
     selected = Recipe(upstream; states = [1, 0])
     entries = QuantumDevices.recipe_inputs(selected)
     @test only(entries).name === :upstream
@@ -82,9 +94,9 @@ end
     # Inspection must not allocate operators, including beyond the build limit.
     calls = Ref(0)
     operators, generators = component_operators(:counted;
-        x = OperatorGenerator(n -> (calls[] += 1; QT.qeye(n)), 3))
+        x = (n -> (calls[] += 1; QT.qeye(n))))
     counted = add_component!(device, Component(:counted; variables = Dict(), parameters = Dict(),
-        operators, operator_generators = generators, hamiltonian = operators["x"]))
+        operators, operator_generators = generators, dimension=3, hamiltonian = operators["x"]))
     alias = Symbol("unusual · retain alias")
     inspect = Recipe(device, [counted]; max_dimension = 1)
     nested = Recipe(device, NamedTuple{(alias,)}((inspect,)); states = [2, 0])

@@ -13,11 +13,10 @@ q2 = add_component!(device, make_flux_tunable_transmon(:q2, 0.26, 19.0; d=0.1))
 ϕ1, ϕc, ϕ2 = q1.variables["flux"], coupler.variables["flux"], q2.variables["flux"]
 EC1, ECc, EC2 = q1.variables["EC"], coupler.variables["EC"], q2.variables["EC"]
 Symbolics.@variables EC1c EC2c EC12
-add_parameters!(device, Dict(EC1c=>26.0,EC2c=>26.0,EC12=>500.0))
 recipe = Recipe(device, [q1,coupler,q2];
     initial_dims=Dict(q1=>31,coupler=>31,q2=>31),
     states=Dict(q1=>0:3,coupler=>0:4,q2=>0:3),
-    parameters=Dict(ϕ1=>0.05,ϕc=>0.20,ϕ2=>0.08))
+    parameters=Dict(ϕ1=>0.05,ϕc=>0.20,ϕ2=>0.08,EC1c=>26.0,EC2c=>26.0,EC12=>500.0))
 n1, nc, n2 = recipe.inputs.q1.operators.charge, recipe.inputs.coupler.operators.charge, recipe.inputs.q2.operators.charge
 J1c = 8EC1*ECc/EC1c
 J2c = 8EC2*ECc/EC2c
@@ -37,20 +36,22 @@ check_endpoints(flux_gate;atol=1e-14) # Explicit, optional reference-endpoint ch
 # Charge is exposed by the input even though a drive amplitude is absent from H.
 # Extra terms are projected in the same reference basis, without rediagonalizing.
 Ω = Symbolics.variable(:microwave_amplitude)
-drive_term = Interaction(:q1_drive,Ω*n1;parameters=Dict(Ω=>0.0))
+drive_recipe = draft(recipe)
+drive_recipe.parameters[Ω] = 0.0
+drive_term = Interaction(:q1_drive,Ω*drive_recipe.inputs.q1.operators.charge)
 microwave_pulse = Pulse(GaussianZero(4.0;duration=20),4.8;duration=20,amplitude=0.03,delay=2)
 drive_control = Control(:q1_microwave,Ω,microwave_pulse)
-microwave_gate = build(device,GateRecipe(recipe;controls=[drive_control],terms=[drive_term],duration=24))
+microwave_gate = build(device,GateRecipe(drive_recipe;controls=[drive_control],terms=[drive_term],duration=24))
 H_microwave = make_hamiltonian(microwave_gate)
 H_microwave(nothing,10.0)
 
-both = build(device,GateRecipe(recipe;controls=[flux_control,drive_control],terms=[drive_term],duration=24))
+both = build(device,GateRecipe(drive_recipe;controls=[flux_control,drive_control],terms=[drive_term],duration=24))
 H_both = make_hamiltonian(both)
 H_both(nothing,10.0)
 println("Prepared dimension: ",length(both.model.spectrum),"; pulse stops: ",pulse_tstops(both))
 
 # With no free_parameters keyword, runtime p is ignored and controls use captured
-# pulses. Build parameters override recipe and term defaults.
+# pulses. Build parameters override recipe assignments and component idle values.
 # draft(both.recipe) returns independent editable model/control/term provenance.
 # Preparation captures physical definitions for calibration provenance.
 # Arbitrary callable captured state remains outside the snapshot boundary.
@@ -75,10 +76,11 @@ calibration_device = QuantumDevice(:calibration_example)
 calibration_qubit = add_component!(calibration_device,make_qubit(:q;frequency=0.0))
 calibration_reference = Recipe(calibration_device,[calibration_qubit])
 drive_amplitude = Symbolics.variable(:drive_amplitude)
+calibration_model = draft(calibration_reference)
+calibration_model.parameters[drive_amplitude] = 0.0
 calibration_term = Interaction(:drive,
-    drive_amplitude*calibration_reference.inputs.q.operators.x;
-    parameters=Dict(drive_amplitude=>0.0))
-working_gate = QuantumGate(:X,GateRecipe(calibration_reference;
+    drive_amplitude*calibration_model.inputs.q.operators.x)
+working_gate = QuantumGate(:X,GateRecipe(calibration_model;
     controls=[Control(:drive,drive_amplitude,Pulse(Constant(;duration=1.0);duration=1.0,amplitude=0.1))],
     terms=[calibration_term]))
 prepared_calibration = build(calibration_device,working_gate.recipe)

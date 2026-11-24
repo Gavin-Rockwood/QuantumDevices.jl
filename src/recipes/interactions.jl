@@ -40,30 +40,6 @@ function bind_interaction_expression(expression::Sym, recipe::CompositeRecipe)
         for item in expression.expr))
 end
 
-# Collect only available declarations; device-less leaves defer component defaults.
-function recipe_default_sources(device, source)
-    if source isa Symbol && isnothing(device)
-        return Any[]
-    end
-    definition = source isa Symbol ? lookup(device.recipes, source, "recipe") : source
-    groups = Any[]
-    if definition isa Leaf
-        isnothing(device) && return groups
-        c = lookup(device.components, definition.component, "component")
-        push!(groups, ("recipe component $(c.name)", component_parameter_values(c)))
-    else
-        for item in definition.interactions
-            item isa Symbol && isnothing(device) && continue
-            interaction = item isa Symbol ? lookup(device.interactions, item, "interaction") : item
-            push!(groups, ("recipe interaction $(interaction.name)", interaction_parameter_values(interaction)))
-        end
-        for input in recipe_inputs(definition)
-            append!(groups, recipe_default_sources(device, input.recipe))
-        end
-    end
-    return groups
-end
-
 """Add a coupling scoped exclusively to this composite's symbolic input operators."""
 function add_interaction!(recipe::CompositeRecipe, interaction::Interaction)
     any(i -> i.name == interaction.name, recipe.interactions) &&
@@ -76,9 +52,7 @@ function add_interaction!(recipe::CompositeRecipe, interaction::Interaction)
         ref.physical.name in binding.operator_names[ref.physical.owner] ||
             throw(ArgumentError("unresolved input operator"))
     end
-    validate_default_sources(vcat(
-        [("recipe interaction $(i.name)", interaction_parameter_values(i)) for i in recipe.interactions],
-        [("recipe interaction $(interaction.name)", interaction_parameter_values(interaction))]))
+    validate_interaction_inputs(interaction)
     push!(recipe.interactions, interaction)
     return interaction
 end
@@ -96,8 +70,7 @@ function attach_interactions!(device, recipe, interactions)
         interaction isa Interaction || throw(ArgumentError("interactions must contain Interaction objects"))
         captured = copy_interaction(interaction, false)
         expression = bind_interaction_expression(captured.expression, recipe)
-        add_interaction!(recipe, Interaction(captured.name, expression, captured.variables,
-                                            captured.parameters, captured.metadata))
+        add_interaction!(recipe, Interaction(captured.name, expression, captured.variables, captured.metadata))
     end
     return recipe
 end

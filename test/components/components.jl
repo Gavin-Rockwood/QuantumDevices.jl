@@ -1,32 +1,36 @@
-@testset "numerical factories and dimensions" begin
+@testset "numerical functions and component dimensions" begin
     q = make_qubit(:q)
     r = make_resonator(:r; dimension=5)
-    @test q.operator_generators["x"](; ignored=true) == QT.sigmax()
-    @test size(r.operator_generators["a"](3; ignored=true)) == (3,3)
-    @test_throws ArgumentError OperatorGenerator(identity, 0)
-    @test_throws ArgumentError q.operator_generators["x"](3)
+    @test q.dimension == 2
+    @test r.dimension == 5
+    @test q.operator_generators["x"](2) == QT.sigmax()
+    @test size(r.operator_generators["a"](3)) == (3,3)
+    @test_throws MethodError q.operator_generators["x"]()
+    @test_throws MethodError q.operator_generators["x"](2; ignored=true)
+    @test_throws ArgumentError make_resonator(:bad; dimension=0)
+    for generator in values(q.operator_generators)
+        @test_throws ArgumentError generator(3)
+    end
     d = QuantumDevice(:test)
     add_component!(d, q)
     ref = OperatorRef(:q, :x)
-    override = OperatorGenerator((dim; scale=1, kwargs...) -> scale * QT.sigmax(), 2)
+    override = dimension -> 3 * QT.sigmax()
     base = build(d, Leaf(component=:q))
-    changed = build(d, Leaf(component=:q, generators=Dict(ref=>override), kwargs=(scale=3,)))
+    changed = build(d, Leaf(component=:q, generators=Dict(ref=>override)))
     @test changed.operators[ref] ≈ 3 * base.operators[ref]
     @test length(changed.operators) == 3
-    ambiguous = OperatorGenerator((dim; kwargs...) -> QT.sigmax(), 3)
-    @test_throws ArgumentError build(d, Leaf(component=:q, generators=Dict(ref=>ambiguous)))
-    @test length(build(d, Leaf(component=:q, dimension=2, generators=Dict(ref=>ambiguous))).spectrum) == 2
+    @test length(build(d, Leaf(component=:q, dimension=2, generators=Dict(ref=>override))).spectrum) == 2
     @test_throws ArgumentError build(d, Leaf(component=:q, dimension=0))
-    bad = OperatorGenerator((dim; kwargs...) -> QT.qeye(3), 2)
-    @test_throws DimensionMismatch build(d, Leaf(component=:q, generators=Dict(ref=>bad)))
+    @test_throws DimensionMismatch build(d, Leaf(component=:q, generators=Dict(ref=>(dimension -> QT.qeye(3)))))
+    @test length(build(QuantumDevice(:r, Dict(:r=>r), Dict(), Dict(), (;)), Leaf(component=:r,dimension=3)).spectrum) == 3
 end
 
 @testset "named component declaration maps" begin
     variables, parameters = component_parameters(:custom; gap=2.)
     calls = Ref(0)
-    factory = OperatorGenerator((dimension;kwargs...)->(calls[]+=1;QT.sigmaz()),2)
+    factory = (dimension->(calls[]+=1;QT.sigmaz()))
     operators, generators = component_operators(:custom;z=factory)
-    component = Component(:custom;variables,parameters,operators,operator_generators=generators,
+    component = Component(:custom;variables,parameters,operators,operator_generators=generators, dimension=2,
         hamiltonian=variables["gap"]*operators["z"])
     @test calls[] == 0
     @test Set(keys(component.variables)) == Set(keys(component.parameters)) == Set(["gap"])
@@ -38,12 +42,14 @@ end
         operator_generators=Dict("other"=>factory),hamiltonian=component.hamiltonian)
     device = QuantumDevice(:mutable_defaults)
     add_component!(device,component)
-    @test device.parameters[string(variables["gap"])] == 2.
+    @test isempty(device.parameters[string(variables["gap"])])
+    add_recipe!(device, :custom, Leaf(component=:custom))
+    @test haskey(device.parameters[string(variables["gap"])], 2.)
     component.parameters["gap"] = 3.
-    @test device.parameters[string(variables["gap"])] == 3.
+    @test haskey(device.parameters[string(variables["gap"])], 2.)
     view = device.parameters
-    view[string(variables["gap"])] = 8.
-    @test device.parameters[string(variables["gap"])] == 3.
+    empty!(view[string(variables["gap"])])
+    @test haskey(device.parameters[string(variables["gap"])], 2.)
     component.parameters["gap"] = Inf
     @test_throws ArgumentError device.parameters
     @test_throws ArgumentError build(device,Leaf(component=:custom);parameters=Dict(variables["gap"]=>4.))

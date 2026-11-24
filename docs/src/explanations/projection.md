@@ -21,9 +21,9 @@ then tensors the retained factors.
 using QuantumDevices, QuantumToolbox, LinearAlgebra
 A = QuantumObject([0.0 1 0; 1 0 1; 0 1 0])
 operators, operator_generators = component_operators(:c;
-    x=OperatorGenerator((dimension;kwargs...)->A,3))
+    x=dimension -> A)
 c = Component(:c; variables=Dict(), parameters=Dict(), operators,
-    operator_generators, hamiltonian=val(0)*operators["x"])
+    operator_generators, dimension=3, hamiltonian=val(0)*operators["x"])
 device = QuantumDevice(:projection)
 add_component!(device,c)
 recipe = Recipe(device,[c];states=Dict(c=>0:1),dressing=false)

@@ -18,17 +18,10 @@ end
 # Infer dimensions from declarations only; inspection never invokes a generator.
 function inspection_dimension(device, leaf::Leaf)
     !isnothing(leaf.dimension) && return big(leaf.dimension)
-    generators = copy(leaf.generators)
-    if !isnothing(device) && haskey(device.components, leaf.component)
-        generators = merge(component_operator_generators(device.components[leaf.component]), generators)
-    elseif isempty(generators)
-        return nothing
-    else
-        # Without a component we cannot know whether overrides cover every operator.
-        return nothing
-    end
-    dimensions = unique(g.default_dimension for g in values(generators))
-    return length(dimensions) == 1 ? big(only(dimensions)) : nothing
+    isnothing(device) && return nothing
+    haskey(device.components, leaf.component) || return nothing
+    dimension = device.components[leaf.component].dimension
+    return isnothing(dimension) ? nothing : big(dimension)
 end
 
 # Describe planned execution using the same reduction classification as model assembly.
@@ -84,7 +77,7 @@ function describe_graph(device, source, path = (); active = Any[])
     )
     nextactive = vcat(active, Any[source])
     details = String[]
-    parameters = resolved ? source.parameters : definition.parameters
+    parameters = resolved ? source.resolved_parameters : definition.overrides
     !isempty(parameters) && push!(
         details,
         (resolved ? "resolved build values: " : "declared overrides: ") *

@@ -19,8 +19,10 @@ device = QuantumDevice(:fit_rotation)
 q = add_component!(device,make_qubit(:q;frequency=0.))
 recipe = Recipe(device,[q])
 A = Symbolics.variable(:drive_amplitude)
-term = Interaction(:drive,A*recipe.inputs.q.operators.x;parameters=Dict(A=>0.))
-trial = GateRecipe(recipe;terms=[term],controls=[
+gate_model = draft(recipe)
+gate_model.parameters[A] = 0.
+term = Interaction(:drive,A*gate_model.inputs.q.operators.x)
+trial = GateRecipe(gate_model;terms=[term],controls=[
     Control(:drive,A,Pulse(Constant(;duration=1.);amplitude=.20))])
 prepared = build(device,trial)
 target = ComplexF64[0 1;1 0]

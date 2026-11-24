@@ -1,17 +1,17 @@
 @testset "parameter precedence and canonical defaults" begin
     p = Symbolics.variable(:shared)
-    c = Component(:q, (frequency=p,), Dict(p=>2), Dict(OperatorRef(:q,:z)=>OperatorGenerator((d;kwargs...)->QT.sigmaz(),2)), (Symbolics.variable(:shared))*op(:q,:z), "custom", nothing, (;))
+    c = Component(:q, (frequency=p,), Dict(p=>2), Dict(OperatorRef(:q,:z)=>(d->QT.sigmaz())), (Symbolics.variable(:shared))*op(:q,:z), "custom", nothing, (;); dimension=2)
     d = QuantumDevice(:shared)
     add_component!(d,c)
-    add_interaction!(d,Interaction(:shift, (p)*op(:q,:z);parameters=Dict(p=>2)))
+    add_interaction!(d,Interaction(:shift, (p)*op(:q,:z)))
     leaf = Leaf(component=:q,parameters=Dict(p=>3))
     add_recipe!(d,:leaf,leaf)
     add_recipe!(d,:pair,Combine(inputs=[Input(:q,:leaf,[0,1])],interactions=[:shift]))
     @test build(d,Leaf(component=:q)).spectrum ≈ [-2,2]
-    @test build(d,:pair).parameters[p] == 3
+    @test build(d,:pair).resolved_parameters[p] == 3
     @test build(d,:pair).spectrum ≈ [-6,6]
     @test build(d,:pair;parameters=Dict(p=>4)).spectrum ≈ [-8,8]
-    @test leaf.parameters[p] == 3
+    @test leaf.overrides[p] == 3
     @test c.parameters["frequency"] == 2
 end
 
@@ -24,7 +24,7 @@ exchange_expression = (coupling) * (
     op(:q1, :x) * op(:q2, :x) + op(:q1, :y) * op(:q2, :y)
 )
 
-exchange = Interaction(:exchange, exchange_expression; parameters=Dict(coupling=>0.17))
+exchange = Interaction(:exchange, exchange_expression)
 
 device = QuantumDevice(:two_qubits)
 @test device.components isa Dict{Symbol,Component}
@@ -44,7 +44,7 @@ add_recipe!(device, :q2_full, Leaf(component=:q2))
 coupled_recipe = add_recipe!(device, :coupled, Combine(
     inputs=[Input(:left, :q1_full, [0, 1]), Input(:right, :q2_full, [0, 1])],
     interactions=[:exchange],
-    parameters=Dict(qubit.variables["ν"] => 5.3),
+    parameters=Dict(qubit.variables["ν"] => 5.3, coupling=>0.17),
 ))
 
 target_model = build(device, :coupled; parameters=Dict(qubit.variables["ν"] => 5.4))
@@ -59,13 +59,13 @@ shift_strength = Symbolics.variable(:λ)
 shift_expression = (shift_strength) * op(:resonator, :a) * op(:resonator, :a)'
 
 add_interaction!(resonator_device, Interaction(
-    :shift, shift_expression; parameters=Dict(shift_strength=>0.3),
+    :shift, shift_expression,
 ))
 add_recipe!(resonator_device, :resonator, Leaf(component=:resonator))
 add_recipe!(resonator_device, :qubit, Leaf(component=:q))
 add_recipe!(resonator_device, :retained, Combine(
     inputs=[Input(:oscillator, :resonator, [0, 1]), Input(:spin, :qubit, [0, 1])],
-    interactions=[:shift],
+    interactions=[:shift], parameters=Dict(shift_strength=>0.3),
 ))
 resonator_model = build(resonator_device, :retained)
 
@@ -95,17 +95,17 @@ construction_embedding = QT.tensor(input_basis_map(first_leaf), input_basis_map(
 @test target_model.operators[OperatorRef(:q1, :x)] ≈ construction_embedding' * QT.tensor(pauli_x, identity2) * construction_embedding
 @test target_model.operators[OperatorRef(:q2, :x)] ≈ construction_embedding' * QT.tensor(identity2, pauli_x) * construction_embedding
 
-@test qubit.operator_generators["x"](2; unused=true) == pauli_x
+@test qubit.operator_generators["x"](2) == pauli_x
 @test make_qubit(:unlabeled; label=nothing).label === nothing
 @test make_qubit(:labeled; label=:q).label == "q"
 @test get_hamiltonian(device, :coupled) isa Sym
 @test length(target_model.operators) == 6 # same local names, distinct owners
-@test target_model.parameters[qubit.variables["ν"]] == 5.4
-@test target_model.recipe.inputs[1].second.parameters[qubit.variables["ν"]] == 5.4
+@test target_model.resolved_parameters[qubit.variables["ν"]] == 5.4
+@test target_model.recipe.inputs[1].second.resolved_parameters[qubit.variables["ν"]] == 5.4
 @test qubit.parameters["ν"] == 5.0
-@test device.recipes[:q1_full].parameters[qubit.variables["ν"]] == 5.1
+@test device.recipes[:q1_full].overrides[qubit.variables["ν"]] == 5.1
 @test build(device, :q1_full).spectrum ≈ [-2.55, 2.55]
-@test build(device, :coupled).parameters[qubit.variables["ν"]] == 5.3
+@test build(device, :coupled).resolved_parameters[qubit.variables["ν"]] == 5.3
 @test all(j -> states(target_model)[j] === target_model.states[j], 1:4)
 @test all(operator -> operator isa QT.QuantumObject, values(target_model.operators))
 @test input_basis_map(target_model) isa QT.QuantumObject
@@ -113,8 +113,8 @@ construction_embedding = QT.tensor(input_basis_map(first_leaf), input_basis_map(
 @test all(operator -> operator.dims == ([2,2], [2,2]), values(target_model.operators))
 
 @test idle_model.spectrum ≈ [-2.5, 2.5]
-@test uncoupled_model.parameters[coupling] == 0.0
-@test stronger_coupling_model.parameters[coupling] == 0.4
+@test uncoupled_model.resolved_parameters[coupling] == 0.0
+@test stronger_coupling_model.resolved_parameters[coupling] == 0.4
 @test projected_product ≈ QuantumDevices.spectrum_operator([1, 2])
 @test !isapprox(projected_product, product_of_projections)
 resonator_reference = (
@@ -142,12 +142,11 @@ end
 @test rejects(() -> build(device, Combine(inputs=[Input(:left, :q1_full, [2])]), Dict()))
 @test rejects(() -> build(device, Combine(inputs=[Input(:left, :q1_full, [0, 0])]), Dict()))
 
-# Partial overrides retain the other default generators and pass numerical keywords.
+# Partial overrides retain the other default generators with fixed configuration in their functions.
 x_reference = OperatorRef(:q1, :x)
-custom_generator = OperatorGenerator((dimension; scale=1, kwargs...) -> scale * pauli_x, 2)
+custom_generator = (dimension -> 2 * pauli_x)
 overridden_model = build(device, Leaf(
     component=:q1,
-    kwargs=(scale=2, unused=true),
     generators=Dict(x_reference => custom_generator),
 ), Dict())
 @test overridden_model.operators[x_reference] ≈ 2 * first_leaf.operators[x_reference]

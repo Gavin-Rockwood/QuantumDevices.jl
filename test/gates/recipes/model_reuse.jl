@@ -33,16 +33,21 @@
         @test make_hamiltonian(model,GateRecipe(recipe;duration=1)) ≈ make_hamiltonian(model)
         n = recipe.inputs.q.operators.charge
         drive = Symbolics.variable(:cached_drive)
-        term = Interaction(:drive,drive*n;parameters=Dict(drive=>0.))
-        driven = GateRecipe(recipe;terms=[term],controls=[Control(:drive,drive,Pulse(Constant(;duration=1);duration=1,amplitude=.02))])
+        gate_recipe = draft(recipe)
+        gate_recipe.overrides[drive] = 0.
+        term = Interaction(:drive,drive*gate_recipe.inputs.q.operators.charge)
+        driven = GateRecipe(gate_recipe;terms=[term],controls=[Control(:drive,drive,Pulse(Constant(;duration=1);duration=1,amplitude=.02))])
         @test make_hamiltonian(model,driven)(nothing,.5) ≈ make_hamiltonian(build(d,driven;parameters=Dict(flux=>value)))(nothing,.5)
-        square = Interaction(:square,drive*n^3;parameters=Dict(drive=>.03))
-        squaregate = GateRecipe(recipe;terms=[square],duration=1)
+        square_recipe = draft(recipe)
+        square_recipe.overrides[drive] = .03
+        square = Interaction(:square,drive*square_recipe.inputs.q.operators.charge^3)
+        squaregate = GateRecipe(square_recipe;terms=[square],duration=1)
         @test_throws ArgumentError make_hamiltonian(model,squaregate)
         projected = build(d,squaregate;parameters=Dict(flux=>value))
         @test make_hamiltonian(projected.model,squaregate) ≈ make_hamiltonian(projected)
-        conflict = Interaction(:conflict,flux*n;parameters=Dict(flux=>.9))
-        @test_throws ArgumentError make_hamiltonian(model,GateRecipe(recipe;terms=[conflict],duration=1))
+        conflict = draft(recipe)
+        conflict.overrides[flux] = .9
+        @test_throws ArgumentError make_hamiltonian(model,GateRecipe(conflict;duration=1))
         missing = Symbolics.variable(:missing_offset)
         bad = GateRecipe(recipe;controls=[Control(:flux,flux,Pulse(Constant(;duration=1);duration=1,offset=missing))])
         @test_throws ArgumentError make_hamiltonian(model,bad)
@@ -79,9 +84,9 @@
     parent = Recipe(d,[q];inputs=(upstream=leaf,),states=Dict(:upstream=>0:2),parameters=Dict(flux=>.2))
     model = build(d,parent)
     compatible = draft(parent)
-    compatible.inputs.upstream.recipe.parameters[flux] = .3
+    compatible.inputs.upstream.recipe.overrides[flux] = .3
     @test make_hamiltonian(model,GateRecipe(compatible;duration=1)) ≈ make_hamiltonian(model)
-    empty!(compatible.parameters)
+    empty!(compatible.overrides)
     @test_throws ArgumentError make_hamiltonian(model,GateRecipe(compatible;duration=1))
     different = Recipe(d,[q];states=Dict(q=>[0,2]))
     @test_throws ArgumentError make_hamiltonian(model,GateRecipe(different;duration=1))
@@ -89,7 +94,7 @@
     model = build(d,recipe;parameters=Dict(flux=>.2))
     other = q.variables["EC"]
     cross = GateRecipe(recipe;controls=[Control(:flux,flux,Pulse(Constant(;duration=1);duration=1,amplitude=0,offset=other))])
-    @test make_hamiltonian(model,cross)(nothing,.5) ≈ make_hamiltonian(model,[flux])(Dict(flux=>(t->model.parameters[other])),.5)
+    @test make_hamiltonian(model,cross)(nothing,.5) ≈ make_hamiltonian(model,[flux])(Dict(flux=>(t->model.resolved_parameters[other])),.5)
     complexmodel = build(d,recipe;parameters=Dict(flux=>.2+0im))
     modulated = GateRecipe(recipe;controls=[Control(:flux,flux,Pulse(Constant(;duration=1),1.;duration=1,offset=flux))])
     @test_throws ArgumentError make_hamiltonian(complexmodel,modulated)
@@ -99,23 +104,25 @@ end
     device = QuantumDevice(:no_rebuild)
     q = add_component!(device,make_qubit(:q))
     calls = Ref(0)
-    generator = OperatorGenerator(n -> begin
+    generator = (n -> begin
         calls[] += 1
         QT.sigmam()
-    end,2)
+    end)
     recipe = Leaf(component=:q,generators=Dict(OperatorRef(:q,:x)=>generator))
     amplitude = Symbolics.variable(:reuse_complex_drive)
-    term = Interaction(:complex,amplitude*op(:q,:x)+adjoint(amplitude*op(:q,:x));parameters=Dict(amplitude=>0.))
+    gate_recipe = draft(recipe)
+    gate_recipe.overrides[amplitude] = 0.
+    term = Interaction(:complex,amplitude*op(:q,:x)+adjoint(amplitude*op(:q,:x)))
     pulse = Pulse(Constant(;duration=1);duration=1,amplitude=.03im)
-    gate = GateRecipe(recipe;terms=[term],controls=[Control(:drive,amplitude,pulse)])
+    gate = GateRecipe(gate_recipe;terms=[term],controls=[Control(:drive,amplitude,pulse)])
     prepared = build(device,gate)
     count = calls[]
     actual = make_hamiltonian(prepared.model,gate)
     @test calls[] == count
     @test actual(nothing,.5) ≈ make_hamiltonian(prepared)(nothing,.5)
     @test calls[] == count
-    missing = Interaction(:missing,amplitude*op(:q,:x)*adjoint(op(:q,:x));parameters=Dict(amplitude=>0.))
-    @test_throws ArgumentError make_hamiltonian(prepared.model,GateRecipe(recipe;terms=[missing],duration=1))
+    missing = Interaction(:missing,amplitude*op(:q,:x)*adjoint(op(:q,:x)))
+    @test_throws ArgumentError make_hamiltonian(prepared.model,GateRecipe(gate_recipe;terms=[missing],duration=1))
     incomplete = Interaction(:incomplete,amplitude*op(:q,:x))
     @test_throws ArgumentError make_hamiltonian(prepared.model,GateRecipe(recipe;terms=[incomplete],controls=[Control(:drive,amplitude,pulse)]))
     @test calls[] == count

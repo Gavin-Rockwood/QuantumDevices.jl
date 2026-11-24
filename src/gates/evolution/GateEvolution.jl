@@ -17,7 +17,7 @@ struct GateEvolution{G,R,I,T,P,S}
     solver::S
 end
 
-function _gate_reference(model)
+function _gate_reference(model; parameters=model.resolved_parameters)
     source = model.eigensystem.tracking
     n = length(model.spectrum)
     # Capture actual eigenstates for label inputs, reference-energy diagnostics,
@@ -26,7 +26,8 @@ function _gate_reference(model)
         copy(getfield(source,:_indices)), deepcopy(getfield(source,:_accuracy)),
         deepcopy(getfield(source,:_diagnostics)); tracked=source.tracked)
     return (; energies=collect(model.spectrum), tracking,
-        components=deepcopy(model.eigensystem.components), recipe=deepcopy(model.recipe))
+        components=deepcopy(model.eigensystem.components), recipe=deepcopy(model.recipe),
+        parameters=RecipeMap(parameters))
 end
 
 function _gate_kets(reference, selections)

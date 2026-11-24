@@ -4,6 +4,9 @@ include("records.jl")
 include("control_maps.jl")
 include("symbolics.jl")
 include("recipes.jl")
+include("generator_migration.jl")
+include("parameter_migration.jl")
+include("recipe_input_migration.jl")
 include("quantum.jl")
 include("domain.jl")
 include("analysis.jl")
@@ -65,10 +68,10 @@ function save_device(folder::AbstractString,device::QuantumDevice;overwrite=fals
     ispath(destination) && !isdir(destination) && _ioerror(destination,"destination is not a directory")
     _validate_device_definitions(device)
     w=RecordWriter(;code_sources)
-    validate_default_sources(device_default_sources(device))
+    validate_component_input_defaults(device.components)
     # IO owns encoded records; do not first deepcopy/freeze the whole live device.
     physical=(;name=device.name,components=device.components,interactions=device.interactions,
-        recipes=device.recipes,explicit_parameters=device.explicit_parameters,metadata=device.metadata,control_maps=device.control_maps)
+        recipes=device.recipes,metadata=device.metadata,control_maps=device.control_maps)
     context=_encode_record(physical,w,"device")
     gates=Dict{String,Any}()
     repository=_repository_record(device.gates,w,gates,IdDict())
@@ -103,7 +106,7 @@ function save_device(folder::AbstractString,device::QuantumDevice;overwrite=fals
         for (root,dirs,names) in walkdir(stage), name in names
             file=joinpath(root,name);files[relpath(file,stage)]=_file_digest(file)
         end
-        manifest=Dict("format"=>"quantumdevices.device","schema"=>2,"producer"=>_environment_fingerprint(),
+        manifest=Dict("format"=>"quantumdevices.device","schema"=>5,"producer"=>_environment_fingerprint(),
             "definition"=>"definitions/device.yaml","recipe_nodes"=>Dict(id=>"recipes/$id.yaml" for id in keys(w.recipes)),
             "gate_nodes"=>Dict(id=>"gates/$id.yaml" for id in keys(gates)),"gates"=>repository,"payload"=>"payloads/arrays.jld2",
             "code"=>source_records,"native_checkpoint"=>native_checkpoint,"files"=>files)
@@ -116,13 +119,16 @@ function save_device(folder::AbstractString,device::QuantumDevice;overwrite=fals
     end
 end
 """
-    load_device(folder; allow_code=false, load_native=false, trusted_native=false)
+    load_device(folder; allow_code=false, load_native=false, trusted_native=false, migration_report=nothing)
 
 Eagerly restore a complete device without building or simulating. Bundled Julia
 source executes in Main only with opt-in. Native checkpoints require independent
 trust and exact environment compatibility; portable summaries are the default.
+Supply a vector as `migration_report` to collect dropped/unavailable legacy input
+notices; otherwise a nonempty migration report gets one informational summary.
 """
-function load_device(folder::AbstractString;allow_code=false,load_native=false,trusted_native=false)
+function load_device(folder::AbstractString;allow_code=false,load_native=false,trusted_native=false,migration_report=nothing)
+    migration_report isa Union{Nothing,AbstractVector} || throw(ArgumentError("migration_report must be a vector or nothing"))
     root=abspath(folder)
     load_native && !trusted_native && _ioerror(root,"native checkpoint requires trusted_native=true")
     manifest=_read_manifest(root;include_native=load_native)
@@ -154,9 +160,15 @@ function load_device(folder::AbstractString;allow_code=false,load_native=false,t
         _migrate_control_map_records!(definition)
         foreach(_migrate_control_map_records!,values(gate_records))
     end
+    _migrate_operator_records!(definition,recipes,gate_records;schema=manifest["schema"])
+    report = NamedTuple[]
+    _migrate_parameter_records!(definition,recipes,gate_records;schema=manifest["schema"],report)
+    _migrate_recipe_input_records!(definition,recipes,gate_records;schema=manifest["schema"])
+    isnothing(migration_report) || append!(migration_report,report)
+    isnothing(migration_report) && !isempty(report) && @info "Device parameter migration" notices=length(report)
     r=RecordReader(recipes,arrays,Dict(),Set(),Dict(),native)
     context=Base.invokelatest(_decode_record,definition,r,"device")
-    manifest["schema"]==2 && !hasproperty(context,:control_maps) && _ioerror("device","schema 2 requires the control_maps registry field")
+    manifest["schema"] in (2,3,4,5) && !hasproperty(context,:control_maps) && _ioerror("device","schema 2/3/4 requires the control_maps registry field")
     device=Base.invokelatest(QuantumDevice,context)
     gates=Dict(id=>Base.invokelatest(_decode_record,record,r,"gates/$id") for (id,record) in gate_records)
     for (id,gate) in gates;Base.invokelatest(_validate_stored_gate,gate,"gates/$id");end

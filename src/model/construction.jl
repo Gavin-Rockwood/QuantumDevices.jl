@@ -43,8 +43,7 @@ function assemble_node(node;dressed_threads=nothing,tracking_threads=missing)
     node.definition isa Leaf || return assemble_composite(node;dressed_threads,tracking_threads)
     recipe = node.definition
     generators,dimension = node.generators,node.dimension
-    kwargs = thaw_recipe_value(recipe.kwargs)
-    operators = Dict(ref=>generator(dimension;kwargs...) for (ref,generator) in generators)
+    operators = Dict(ref=>generator(dimension) for (ref,generator) in generators)
     all(operator -> operator isa QuantumObject,values(operators)) ||
         throw(ArgumentError("generators must return QuantumObjects"))
     identity = qeye(dimension)

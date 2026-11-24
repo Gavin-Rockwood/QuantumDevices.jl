@@ -10,7 +10,7 @@
     gate=GateRecipe(endpoint;terms=[term],duration=1.)
     model=build(d,endpoint)
     reference=copy(model.H.data)
-    @test model.parameters[x]==1.
+    @test model.resolved_parameters[x]==1.
     @test_throws ArgumentError build(d,gate)
     @test_throws ArgumentError make_hamiltonian(model,gate)
     @test model.H.data==reference
@@ -23,7 +23,7 @@
     goodendpoint=Recipe((left=left,right=Recipe(d,[b])))
     good=GateRecipe(goodendpoint;terms=[term],duration=1.)
     prepared=build(d,good)
-    @test prepared.parameters[x]==prepared.model.parameters[x]==1.
+    @test prepared.parameters[x]==prepared.model.resolved_parameters[x]==1.
     expected=prepared.model.H+prepared.model.operators[OperatorRef(:b,:x)]
     @test make_hamiltonian(prepared) ≈ expected
     @test make_hamiltonian(prepared.model,good) ≈ expected
@@ -34,25 +34,26 @@
         .35*dynamic.model.operators[OperatorRef(:b,:z)]+1.2*dynamic.model.operators[OperatorRef(:b,:x)]
     @test make_hamiltonian(dynamic)(nothing,.4) ≈ expected_dynamic
     @test make_hamiltonian(dynamic.model,controlled)(nothing,.4) ≈ expected_dynamic
-    @test dynamic.model.parameters[x]==1.
+    @test dynamic.model.resolved_parameters[x]==1.
     @test dynamic.model.H ≈ prepared.model.H
     # A real downstream/build operating-point override applies to both uses.
-    point=draft(endpoint);point.parameters[x]=2.
+    point=draft(endpoint);point.overrides[x]=2.
     aligned=GateRecipe(point;terms=[term],duration=1.)
     shifted=build(d,aligned)
-    @test shifted.parameters[x]==shifted.model.parameters[x]==2.
+    @test shifted.parameters[x]==shifted.model.resolved_parameters[x]==2.
     @test make_hamiltonian(shifted.model,aligned) ≈ make_hamiltonian(shifted)
     explicit=build(d,gate;parameters=Dict(x=>3.))
-    @test explicit.parameters[x]==explicit.model.parameters[x]==3.
+    @test explicit.parameters[x]==explicit.model.resolved_parameters[x]==3.
     @test make_hamiltonian(explicit) ≈ explicit.model.H+3*explicit.model.operators[OperatorRef(:b,:x)]
-    compatible=draft(endpoint);compatible.parameters[x]=3.
+    compatible=draft(endpoint);compatible.overrides[x]=3.
     @test make_hamiltonian(explicit.model,GateRecipe(compatible;terms=[term],duration=1.)) ≈ make_hamiltonian(explicit)
-    # Conflicting idle declarations are diagnosed before point overrides mask them.
-    baddefault=GateRecipe(point;terms=[Interaction(:bad_default,x*b.operators["x"];parameters=Dict(x=>4.))],duration=1.)
-    error=try build(d,baddefault;parameters=Dict(x=>4.));nothing catch err;err end
+    # Cached reference values reject a contradictory gate-owned assignment.
+    incompatible=draft(point);incompatible.overrides[x]=4.
+    badpoint=GateRecipe(incompatible;terms=[term],duration=1.)
+    error=try make_hamiltonian(shifted.model,badpoint);nothing catch err;err end
     @test error isa ArgumentError
-    @test occursin("conflicting defaults",sprint(showerror,error))
-    @test_throws ArgumentError make_hamiltonian(model,baddefault)
+    @test occursin(string(x),sprint(showerror,error))
+    @test_throws ArgumentError make_hamiltonian(model,badpoint)
     unknown=Symbolics.variable(:unknown_reconciliation_override)
     error=try build(d,goodendpoint;parameters=Dict(unknown=>.1));nothing catch err;err end
     @test error isa ArgumentError
@@ -63,23 +64,26 @@ end
     d=QuantumDevice(:additional_gate_parameters)
     a=add_component!(d,make_qubit(:a));b=add_component!(d,make_qubit(:b))
     p=Symbolics.variable(:extra_reconciliation)
-    left=Recipe(d,[a];parameters=Dict(p=>.2))
+    left=Recipe(d,[a])
     right=Recipe(d,[b])
     endpoint=Recipe((left=left,right=right))
-    own=GateRecipe(endpoint;terms=[Interaction(:left_extra,p*a.operators["x"])],duration=1.)
+    owned=draft(endpoint)
+    owned.inputs.left.recipe.overrides[p]=.2
+    own=GateRecipe(owned;terms=[Interaction(:left_extra,p*a.operators["x"])],duration=1.)
     prepared=build(d,own)
-    @test !haskey(prepared.model.parameters,p)
+    @test !haskey(prepared.model.resolved_parameters,p)
     @test prepared.parameters[p]==.2
     @test make_hamiltonian(prepared.model,own) ≈ make_hamiltonian(prepared)
-    unrelated=GateRecipe(endpoint;terms=[Interaction(:right_missing,p*b.operators["x"])],duration=1.)
+    unrelated=GateRecipe(owned;terms=[Interaction(:right_missing,p*b.operators["x"])],duration=1.)
     @test_throws ArgumentError build(d,unrelated)
     @test_throws ArgumentError make_hamiltonian(prepared.model,unrelated)
-    add_parameters!(d,Dict(p=>0.))
-    both=GateRecipe(endpoint;terms=[Interaction(:left_extra,p*a.operators["x"]),
-        Interaction(:right_extra,p*b.operators["x"];parameters=Dict(p=>0.))],duration=1.)
+    contradictory=draft(owned)
+    contradictory.inputs.right.recipe.overrides[p]=0.
+    both=GateRecipe(contradictory;terms=[Interaction(:left_extra,p*a.operators["x"]),
+        Interaction(:right_extra,p*b.operators["x"])],duration=1.)
     @test_throws ArgumentError build(d,both)
     @test_throws ArgumentError make_hamiltonian(prepared.model,both)
-    root=draft(endpoint);root.parameters[p]=.4
+    root=draft(contradictory);root.overrides[p]=.4
     unified=GateRecipe(root;terms=both.terms,duration=1.)
     result=build(d,unified)
     @test result.parameters[p]==.4

@@ -377,10 +377,12 @@ end
     manifest["files"][manifest["definition"]]=bytes2hex(SHA.sha256(read(joinpath(folder,manifest["definition"]))))
     YAML.write_file(joinpath(folder,"device.yaml"),manifest)
     @test_throws ArgumentError load_device(folder) # Schema 2 requires the registry field.
+    legacy_generator_records!(definition)
     replacements=Dict{String,String}()
     records=Dict(id=>YAML.load_file(joinpath(folder,path)) for (id,path) in manifest["recipe_nodes"])
     # Children have no recipe references in this tiny fixture; process leaves first.
     for (id,record) in sort!(collect(records);by=p->p.second["kind"]=="Leaf" ? 0 : 1)
+        legacy_generator_records!(record)
         delete!(record["fields"],"control_maps")
         function rewrite!(value)
             if value isa AbstractDict

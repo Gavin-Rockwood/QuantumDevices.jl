@@ -1,5 +1,17 @@
 using SparseArrays
 const _IO_NUMBERS = Dict(string(T)=>T for T in (Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128,Float16,Float32,Float64,BigInt,BigFloat))
+function _operator_function_record(f)
+    for (id, builtin) in BUILTIN_OPERATOR_FUNCTIONS
+        f === builtin && return Dict("tag"=>"operator_function", "version"=>1, "id"=>id)
+    end
+    return nothing
+end
+function _restore_operator_function(d, path)
+    get(d,"version",nothing) == 1 || _ioerror(path,"unsupported operator function version")
+    id = get(d,"id",nothing)
+    haskey(BUILTIN_OPERATOR_FUNCTIONS,id) || _ioerror(path,"unknown operator function ID")
+    return BUILTIN_OPERATOR_FUNCTIONS[id]
+end
 const _IO_OPERATIONS = Dict(string(f)=>f for f in (+,-,*,/,^,conj,real,imag,abs,abs2,sqrt,exp,log,sin,cos,tan,sinpi,cospi,sinh,cosh,asin,acos,atan))
 mutable struct RecordWriter
     recipes::Dict{String,Any}
@@ -89,7 +101,8 @@ function _encode_record(x,w,path)
     x isa SciMLBase.ObjSense && return Dict("tag"=>"objective_sense","value"=>string(x))
     x isa SciMLBase.NoAD && return Dict("tag"=>"no_ad")
     x isa SciMLBase.ReturnCode.T && return Dict("tag"=>"retcode","value"=>string(x))
-    x isa BuiltinGenerator && return Dict("tag"=>"builtin_generator","version"=>1,"kind"=>String(x.kind))
+    builtin = _operator_function_record(x)
+    isnothing(builtin) || return builtin
     return _encode_domain_record(x,w,path)
 end
 function _dict_record(x,w,path)
@@ -180,12 +193,7 @@ function _decode_record_inner(d,r,path)
         value isa SciMLBase.ReturnCode.T || _ioerror(path,"not a return-code value")
         return value
     end
-    if tag=="builtin_generator"
-        get(d,"version",1)==1 || _ioerror(path,"unsupported builtin generator version")
-        kind=Symbol(d["kind"])
-        kind in (:pauli_x,:pauli_y,:pauli_z,:destroy,:number,:charge,:jump) || _ioerror(path,"unknown builtin generator")
-        return BuiltinGenerator(kind)
-    end
+    tag=="operator_function" && return _restore_operator_function(d,path)
     if tag=="custom"
         codec=get(_IO_CODECS,d["id"],nothing)
         !isnothing(codec) && codec.version==d["version"] || _ioerror(path,"missing codec/version $(d["id"])")

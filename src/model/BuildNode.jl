@@ -9,7 +9,7 @@ Base.@kwdef mutable struct BuildNode
     owners::Vector{Symbol}
     relevant::Set{Num}
     parameters::Dict{Num,Number} = Dict{Num,Number}()
-    generators::Union{Nothing,Dict{OperatorRef,OperatorGenerator}} = nothing
+    generators::Union{Nothing,Dict{OperatorRef,Function}} = nothing
     dimension::Int
     required_products::Set{Tuple} = Set{Tuple}()
     hamiltonian::Sym

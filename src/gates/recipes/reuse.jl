@@ -26,33 +26,31 @@ function _reuse_interactions(a, b, left, right)
         x isa Interaction && y isa Interaction ||
             _reuse_error("named interactions cannot be resolved without a device")
         isequal(x.name,y.name) && isequal(x.variables,y.variables) &&
-            isequal(x.parameters,y.parameters) &&
             isequal(_reuse_bound_expression(x.expression,left),_reuse_bound_expression(y.expression,right)) ||
             _reuse_error("interaction $(x.name) differs")
     end
 end
 _reuse_options(recipe) = (; (k=>v for (k,v) in pairs(recipe.dressing_options)
     if !(k in (:thread_count,:dressed_threads,:tracking_threads)))...)
-function _check_reuse_recipe(recipe, captured::ResolvedRecipe, downstream=Dict{Num,Number}(), known=Set(keys(captured.parameters)))
+function _check_reuse_recipe(recipe, captured::ResolvedRecipe, downstream=Dict{Num,Number}(), known=Set(keys(captured.resolved_parameters)))
     recipe isa Symbol && _reuse_error("named recipe $recipe cannot be resolved without a device; supply a concrete recipe tree")
     saved = captured.definition
     (recipe isa Leaf && saved isa Leaf) || (recipe isa CompositeRecipe && saved isa CompositeRecipe) ||
         (recipe isa Combine && saved isa Combine) || _reuse_error("recipe kind differs")
-    validate_overrides(recipe.parameters,known)
-    inherited = merge(Dict{Num,Number}(recipe.parameters),downstream)
+    validate_overrides(recipe.overrides,known)
+    inherited = merge(Dict{Num,Number}(recipe.overrides),downstream)
     for (variable,value) in inherited
         # Downstream assignments override upstream assignments exactly as in build.
         variable in known || _reuse_error("reference assignment for unknown parameter $variable")
-        haskey(captured.parameters,variable) || continue
-        isequal(value,captured.parameters[variable]) || _reuse_error("reference assignment for $variable differs")
+        haskey(captured.resolved_parameters,variable) || continue
+        isequal(value,captured.resolved_parameters[variable]) || _reuse_error("reference assignment for $variable differs")
     end
     if recipe isa Leaf
-        isequal(recipe.component,saved.component) && isequal(recipe.dimension,saved.dimension) &&
-            isequal(recipe.kwargs,saved.kwargs) || _reuse_error("leaf component, dimension, or generator keywords differ")
+        isequal(recipe.component,saved.component) && isequal(recipe.dimension,saved.dimension) || _reuse_error("leaf component or dimension differs")
         Set(keys(recipe.generators)) == Set(keys(saved.generators)) || _reuse_error("generator choices differ")
         for (ref,generator) in recipe.generators
             other = saved.generators[ref]
-            isequal(generator.f,other.f) && isequal(generator.default_dimension,other.default_dimension) ||
+            isequal(generator,other) ||
                 _reuse_error("generator for $ref differs")
         end
         return nothing
@@ -84,21 +82,17 @@ end
 
 # Reuse only captured products/reference values; no model or projection is built.
 function _reuse_gate_data(model,gate)
-    sources = vcat([("model reference",model.parameters)],
-        [("gate interaction $(term.name)",interaction_parameter_values(term)) for term in gate.terms])
-    validate_default_sources(sources)
-    defaults = Dict{Num,Number}(variable=>value for (_,declarations) in sources for (variable,value) in declarations)
-    known = union(Set(keys(model.parameters)),Set{Num}(variable for term in gate.terms for variable in values(term.variables)))
+    known = union(Set(keys(model.resolved_parameters)),Set{Num}(variable for term in gate.terms for variable in values(term.variables)))
     _check_reuse_recipe(gate.model_recipe,model.recipe,Dict{Num,Number}(),known)
     extra = Sym[]
     for term in gate.terms
         _check_reuse_scope(term.expression,gate.model_recipe)
         push!(extra,physical_expression(term.expression))
     end
-    missing = Dict{Num,Set{String}}()
-    resolved = reconcile_gate_parameters(gate.model_recipe,model.parameters,gate.terms,extra,
-        defaults,Dict{Num,Number}(),missing)
-    throw_missing_parameters(missing)
+    missing_sites = Dict{Num,Vector{Tuple}}()
+    resolved_values = reconcile_gate_parameters(gate.model_recipe,model.resolved_parameters,gate.terms,extra,Dict(),missing_sites)
+    require_resolved_inputs((;missing=missing_sites))
+    resolved = Dict{Num,Number}(resolved_values)
     return extra,resolved
 end
 
@@ -108,7 +102,7 @@ end
 Compile a gate against a compatible captured model using only cached complete
 operator products. No model is built. Concrete recipe trees must agree in basis
 choices and effective explicit reference assignments; omitted assignments inherit
-`model.parameters`. Controls may replace those reference values at runtime.
+`model.resolved_parameters`. Controls may replace those reference values at runtime.
 Missing products require an explicit rebuild with the gate terms. `scalar` and
 fixed coefficient factors are folded into fresh matrices before `herm_check`,
 with the same units and cleanup semantics as `make_hamiltonian(model)`.

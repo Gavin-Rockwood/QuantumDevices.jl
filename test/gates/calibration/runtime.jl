@@ -3,9 +3,11 @@
     q = add_component!(device,make_qubit(:q;frequency=0.13))
     recipe = Recipe(device,[q])
     amplitude = Symbolics.variable(:runtime_amplitude)
-    term = Interaction(:drive,amplitude*recipe.inputs.q.operators.x;parameters=Dict(amplitude=>0.))
+    gate_recipe = draft(recipe)
+    gate_recipe.overrides[amplitude] = 0.
+    term = Interaction(:drive,amplitude*gate_recipe.inputs.q.operators.x)
     pulse = Pulse(GaussianSquare(0.2;duration=1.),0.23;duration=1.,amplitude=0.12,phase=0.17,delay=0.1)
-    prepared = build(device,GateRecipe(recipe;terms=[term],controls=[Control(:drive,amplitude,pulse)]))
+    prepared = build(device,GateRecipe(gate_recipe;terms=[term],controls=[Control(:drive,amplitude,pulse)]))
     target = Matrix{ComplexF64}(I,2,2)
     paths = ["drive/amplitude","drive/carrier/phase","drive/carrier/frequency","drive/duration","drive/delay"]
     settings = (;abstol=1e-9,reltol=1e-9,remove_vacuum=true,energy_shift=:auto)
@@ -27,8 +29,8 @@
     for values in points
         @test symbolic.problem.f(values,nothing) ≈ baseline(symbolic,values) atol=1e-8
     end
-    nonlinear_term = Interaction(:nonlinear,amplitude^2*recipe.inputs.q.operators.x;parameters=Dict(amplitude=>0.))
-    nonlinear_prepared = build(device,GateRecipe(recipe;terms=[nonlinear_term],controls=[Control(:drive,amplitude,pulse)]))
+    nonlinear_term = Interaction(:nonlinear,amplitude^2*gate_recipe.inputs.q.operators.x)
+    nonlinear_prepared = build(device,GateRecipe(gate_recipe;terms=[nonlinear_term],controls=[Control(:drive,amplitude,pulse)]))
     nonlinear = CalibrationProblem(nonlinear_prepared,paths,target;objective,evolution_settings=settings)
     @test nonlinear.problem.f(first(points),nothing) ≈ baseline(nonlinear,first(points)) atol=1e-8
 
@@ -62,9 +64,11 @@ end
     q=add_component!(device,make_qubit(:q;frequency=.13))
     recipe=Recipe(device,[q])
     a,b=Symbolics.variable(:linked_a),Symbolics.variable(:linked_b)
-    term=Interaction(:cross,a^2*b*recipe.inputs.q.operators.x;parameters=Dict(a=>0.,b=>0.))
+    gate_recipe = draft(recipe)
+    merge!(gate_recipe.overrides, Dict(a=>0.,b=>0.))
+    term=Interaction(:cross,a^2*b*gate_recipe.inputs.q.operators.x)
     pulse=Pulse(RampedFlattop(.2;duration=1.);amplitude=.2)
-    prepared=build(device,GateRecipe(recipe;terms=[term],controls=[Control(:left,a,pulse),Control(:right,b,pulse)]))
+    prepared=build(device,GateRecipe(gate_recipe;terms=[term],controls=[Control(:left,a,pulse),Control(:right,b,pulse)]))
     T=Symbolics.variable(:linked_time)
     target=Matrix{ComplexF64}(I,2,2)
     links=Dict("left/duration"=>T,"left/envelope/rise_time"=>.6T,"left/envelope/fall_time"=>.4T,
@@ -86,11 +90,13 @@ end
     q=add_component!(device,make_qubit(:q;frequency=.13))
     recipe=Recipe(device,[q])
     a=Symbolics.variable(:rebuild_drive)
-    term=Interaction(:drive,a*recipe.inputs.q.operators.x;parameters=Dict(a=>0.))
+    gate_recipe = draft(recipe)
+    gate_recipe.overrides[a] = 0.
+    term=Interaction(:drive,a*gate_recipe.inputs.q.operators.x)
     target=Matrix{ComplexF64}(I,2,2)
     for (envelope,path,value) in ((Slepian(2.;duration=1.,samples=9),"drive/envelope/time_bandwidth",3.),
         (Envelope((p,u)->p.level*u,(;level=.2);duration=1.),"drive/envelope/level",.4))
-        prepared=build(device,GateRecipe(recipe;terms=[term],controls=[Control(:drive,a,Pulse(envelope;amplitude=.2))]))
+        prepared=build(device,GateRecipe(gate_recipe;terms=[term],controls=[Control(:drive,a,Pulse(envelope;amplitude=.2))]))
         problem=CalibrationProblem(prepared,[path],target;evolution_settings=(;abstol=1e-9,reltol=1e-9))
         @test problem.parameterization.runtime_mode===:rebuild_candidate
         @test_throws ArgumentError make_hamiltonian(prepared;free_parameters=(path,))

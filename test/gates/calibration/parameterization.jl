@@ -6,9 +6,11 @@ parameterization_test_shape(p,u) = p.width*u
     q = add_component!(device,make_qubit(:q;frequency=0.))
     recipe = Recipe(device,[q])
     a,b,T,gap,Aq,Ac = Symbolics.variable.((:parameter_a,:parameter_b,:parameter_T,:parameter_gap,:parameter_Aq,:parameter_Ac))
-    terms = [Interaction(:drive,a*recipe.inputs.q.operators.x;parameters=Dict(a=>0.)),
-             Interaction(:other,b*recipe.inputs.q.operators.z;parameters=Dict(b=>0.))]
-    seed = GateRecipe(recipe;terms,controls=[Control(:drive,a,Pulse(Constant(;duration=1.);duration=1.,amplitude=.25))])
+    gate_recipe = draft(recipe)
+    merge!(gate_recipe.overrides, Dict(a=>0.,b=>0.))
+    terms = [Interaction(:drive,a*gate_recipe.inputs.q.operators.x),
+             Interaction(:other,b*gate_recipe.inputs.q.operators.z)]
+    seed = GateRecipe(gate_recipe;terms,controls=[Control(:drive,a,Pulse(Constant(;duration=1.);duration=1.,amplitude=.25))])
     reference = build(device,seed)
     target = ComplexF64[0 1;1 0]
     prepare(gate) = PreparedGate(gate,reference.model,reference.terms,reference.parameters,reference.context)
@@ -18,8 +20,8 @@ parameterization_test_shape(p,u) = p.width*u
     @test fieldnames(typeof(seed))==(:model_recipe,:controls,:terms,:duration,:metadata,:duration_policy)
     @test !hasproperty(seed,:parameters) && !hasproperty(seed,:variables) && !hasproperty(seed,:links)
     @test !isdefined(QuantumDevices,:setparameters)
-    @test_throws MethodError GateRecipe(recipe;controls=seed.controls,parameters=Dict("T"=>(T,1.)))
-    @test_throws MethodError GateRecipe(recipe;controls=seed.controls,links=Dict("drive/duration"=>T))
+    @test_throws MethodError GateRecipe(gate_recipe;controls=seed.controls,parameters=Dict("T"=>(T,1.)))
+    @test_throws MethodError GateRecipe(gate_recipe;controls=seed.controls,links=Dict("drive/duration"=>T))
     @test getpath(seed,"drive/duration")==1.
     @test getpath(seed,"controls/1/pulse/duration")==1.
     @test haspath(seed,"drive/duration")
@@ -28,10 +30,10 @@ parameterization_test_shape(p,u) = p.width*u
     @test setpath(seed,"controls/1/pulse/duration",2.).duration==2.
     @test isequal(setpath(seed,"drive/offset",a).controls[1].pulse.offset,a)
     @test setpath(seed,"duration",2.).duration_policy===:explicit
-    explicit=GateRecipe(recipe;terms,controls=seed.controls,duration=1.)
+    explicit=GateRecipe(gate_recipe;terms,controls=seed.controls,duration=1.)
     @test QuantumDevices._update_gate_pulses(explicit,["drive/duration"=>.5]).duration==1.
     @test_throws ArgumentError QuantumDevices._update_gate_pulses(explicit,["drive/duration"=>2.])
-    named_parameters=GateRecipe(recipe;terms,controls=[Control(:parameters,a,seed.controls[1].pulse)])
+    named_parameters=GateRecipe(gate_recipe;terms,controls=[Control(:parameters,a,seed.controls[1].pulse)])
     direct_named=CalibrationProblem(prepare(named_parameters),["parameters/duration"],target)
     @test direct_named.coordinates==("parameters/duration",)
     @test !haskey(calibration_parameters(seed),"parameters/T")
@@ -78,7 +80,7 @@ parameterization_test_shape(p,u) = p.width*u
     @test !hasproperty(direct,:selected_parameters)
 
     # Three independent coordinates write four physical fields, independent of link order.
-    two=GateRecipe(recipe;terms,controls=[Control(:q1,a,Pulse(RampedFlattop(5.;duration=78.5);duration=78.5,amplitude=.04193)),
+    two=GateRecipe(gate_recipe;terms,controls=[Control(:q1,a,Pulse(RampedFlattop(5.;duration=78.5);duration=78.5,amplitude=.04193)),
         Control(:coupler,b,Pulse(RampedFlattop(5.;duration=68.);duration=68.,amplitude=.13,delay=5.))])
     fourlinks=Dict("q1/duration"=>T,"coupler/duration"=>T-10.5,"q1/amplitude"=>Aq,"coupler/amplitude"=>Ac)
     cz=symbolic(two,[Aq=>.04193,Ac=>.13,T=>78.5],fourlinks;lb=[.03,.08,40.],ub=[.06,.18,120.])
@@ -99,7 +101,7 @@ parameterization_test_shape(p,u) = p.width*u
     @test length(one.coordinates)==1 && length(one.paths)==2
 
     # Coupled physical-time nodes/duration validate only the final candidate.
-    interpolation=GateRecipe(recipe;terms,controls=[Control(:drive,a,Pulse(InterpolatedEnvelope([0.,1.,2.],[0.,1.,0.];duration=2.);duration=2.))])
+    interpolation=GateRecipe(gate_recipe;terms,controls=[Control(:drive,a,Pulse(InterpolatedEnvelope([0.,1.,2.],[0.,1.,0.];duration=2.);duration=2.))])
     interpolated=symbolic(interpolation,[T=>4.],Dict("drive/duration"=>T,"drive/envelope/times/2"=>T/2,"drive/envelope/times/3"=>T))
     shortened=calibrated_recipe(interpolated,[1.])
     @test shortened.controls[1].pulse.envelope.times==[0.,.5,1.]
@@ -107,7 +109,7 @@ parameterization_test_shape(p,u) = p.width*u
     @test interpolation.controls[1].pulse.envelope.times==[0.,1.,2.]
     @test_throws ArgumentError calibrated_recipe(interpolated,[0.])
     envelope=EnvelopeSequence(Segment(Constant(;duration=1.);duration=1.),Segment(Constant(;duration=2.);duration=2.))
-    sequence=GateRecipe(recipe;terms,controls=[Control(:seq,a,PulseSequence(Pulse(envelope),Pulse(Constant(;duration=1.);duration=1.,delay=.5);delay=.25))])
+    sequence=GateRecipe(gate_recipe;terms,controls=[Control(:seq,a,PulseSequence(Pulse(envelope),Pulse(Constant(;duration=1.);duration=1.,delay=.5);delay=.25))])
     sequenced=symbolic(sequence,[T=>2.],Dict("seq/pulses/1/envelope/segments/1/duration"=>T,"seq/pulses/1/envelope/segments/2/duration"=>T/2))
     candidate=calibrated_recipe(sequenced,[4.])
     @test candidate.controls[1].pulse.pulses[1].duration==6.
@@ -117,7 +119,7 @@ parameterization_test_shape(p,u) = p.width*u
     @test !haskey(calibration_parameters(sequence),"seq/pulses/1/duration")
     @test_throws ArgumentError symbolic(sequence,[T=>2.],Dict("seq/duration"=>T))
     @test_throws ArgumentError symbolic(sequence,[T=>2.],Dict("seq/pulses/1/duration"=>T))
-    custom=GateRecipe(recipe;terms,controls=[Control(:drive,a,Pulse(Envelope(parameterization_test_shape,(;width=1.);duration=2.),.1;duration=2.,phase=.2,reference=:sequence))])
+    custom=GateRecipe(gate_recipe;terms,controls=[Control(:drive,a,Pulse(Envelope(parameterization_test_shape,(;width=1.);duration=2.),.1;duration=2.,phase=.2,reference=:sequence))])
     customproblem=symbolic(custom,[T=>2.],Dict("drive/envelope/width"=>T/2,"drive/carrier/frequency"=>T/10,"drive/carrier/phase"=>T/5))
     candidate=calibrated_recipe(customproblem,[4.])
     @test candidate.controls[1].pulse.envelope.parameters.width==2.
@@ -126,7 +128,7 @@ parameterization_test_shape(p,u) = p.width*u
     @test candidate.controls[1].pulse.carrier.reference===:sequence
     @test_throws ArgumentError symbolic(custom,[T=>2.],Dict("drive/envelope/width"=>T,"drive/envelope/parameters/width"=>T))
     @test_throws ArgumentError CalibrationProblem(prepare(custom),["drive/envelope/width","drive/envelope/parameters/width"],target)
-    slepian=GateRecipe(recipe;terms,controls=[Control(:drive,a,Pulse(Slepian(2.;duration=2.,samples=9);duration=2.))])
+    slepian=GateRecipe(gate_recipe;terms,controls=[Control(:drive,a,Pulse(Slepian(2.;duration=2.,samples=9);duration=2.))])
     @test_throws ArgumentError symbolic(slepian,[T=>3.],Dict("drive/envelope/samples"=>T))
     @test calibrated_recipe(symbolic(slepian,[T=>3.],Dict("drive/envelope/time_bandwidth"=>T)),[3.]).controls[1].pulse.envelope.time_bandwidth==3.
 
@@ -134,7 +136,7 @@ parameterization_test_shape(p,u) = p.width*u
     @test_throws ArgumentError CalibrationProblem(prepare(seed),["drive/duration","drive/envelope/duration"],target)
 
     # Physical offsets remain physical; the calibration never substitutes model references.
-    offset=GateRecipe(recipe;terms,controls=[Control(:drive,a,Pulse(Constant(;duration=1.);duration=1.,amplitude=.25,offset=a))])
+    offset=GateRecipe(gate_recipe;terms,controls=[Control(:drive,a,Pulse(Constant(;duration=1.);duration=1.,amplitude=.25,offset=a))])
     offsetproblem=symbolic(offset,[T=>1.],Dict("drive/duration"=>T))
     @test isequal(offsetproblem.prepared.recipe.controls[1].pulse.offset,a)
     @test_throws ArgumentError symbolic(offset,[T=>1.],Dict("drive/offset"=>T))

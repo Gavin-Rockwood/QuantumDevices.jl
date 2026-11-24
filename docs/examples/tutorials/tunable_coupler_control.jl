@@ -55,7 +55,7 @@ recipe = Recipe(device,[q1,q2,coupler];states=Dict(q1=>0:retained_levels-1,
     q2=>0:retained_levels-1,coupler=>0:retained_levels-1))
 
 # Capacitive coupling uses the same circuit parameters and signs as before.
-# Interactions refer to this recipe's scoped operators. Registering parameters
+# Interactions refer to this recipe's scoped operators. Assigning recipe values
 # separately makes their physical identities explicit. EC1c, EC2c and EC12
 # are circuit charging-energy scales, not the direct interaction coefficients:
 #
@@ -64,7 +64,7 @@ recipe = Recipe(device,[q1,q2,coupler];states=Dict(q1=>0:retained_levels-1,
 
 Symbolics.@variables g1c g2c g12
 η = EC12*ECc/(EC1c*EC2c)
-add_parameters!(device,Dict(g1c=>8EC1*ECc/EC1c,g2c=>8EC2*ECc/EC2c,
+merge!(recipe.parameters,Dict(g1c=>8EC1*ECc/EC1c,g2c=>8EC2*ECc/EC2c,
     g12=>8(1+η)*EC1*EC2/EC12))
 n1 = recipe.inputs.q1.operators.charge
 n2 = recipe.inputs.q2.operators.charge
@@ -197,10 +197,12 @@ leakage = 1 .- vec(sum(abs2,M.data;dims=1))
 
 q1_frequency = abs(stateenergy(model,(1,0,0))-stateenergy(model,(0,0,0)))
 drive_amplitude = Symbolics.variable(:microwave_amplitude)
-microwave_term = Interaction(:q1_drive,drive_amplitude*n1;parameters=Dict(drive_amplitude=>0.))
+microwave_model = draft(recipe)
+microwave_model.parameters[drive_amplitude] = 0.
+microwave_term = Interaction(:q1_drive,drive_amplitude*microwave_model.inputs.q1.operators.charge)
 microwave = Pulse(SineSquared(;duration=9.027992059968785),q1_frequency;
     amplitude=0.024775449345990953,phase=1.5501484428191823-pi/2)
-microwave_recipe = GateRecipe(recipe;terms=[microwave_term],
+microwave_recipe = GateRecipe(microwave_model;terms=[microwave_term],
     controls=[Control(:drive,drive_amplitude,microwave)])
 microwave_prepared = build(device,microwave_recipe)
 

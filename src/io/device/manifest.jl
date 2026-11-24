@@ -30,7 +30,7 @@ _environment_fingerprint()=Dict("implementation"=>_implementation_digest(),"juli
 function _read_manifest(root;include_native=false)
     islink(root) && _ioerror(root,"bundle root may not be a symlink")
     manifest=YAML.load_file(_bundle_path(root,"device.yaml"))
-    get(manifest,"format",nothing)=="quantumdevices.device" && get(manifest,"schema",nothing) in (1,2) || _ioerror(root,"unsupported device format/schema")
+    get(manifest,"format",nothing)=="quantumdevices.device" && get(manifest,"schema",nothing) in (1,2,3,4,5) || _ioerror(root,"unsupported device format/schema")
     for (relative,digest) in manifest["files"]
         file=_bundle_path(root,relative)
         relative=="checkpoints/native.jld2" && !include_native && continue

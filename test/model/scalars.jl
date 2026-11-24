@@ -67,7 +67,7 @@ end
         pulse = Pulse(GaussianZero(.3;duration=1);duration=1,amplitude=.3,offset=x)
         gate = GateRecipe(definition;controls=[Control(:x,x,pulse)])
         prepared = PreparedGate(gate,model,Sym[],parameters,(;))
-        resolvedpulse = QuantumDevices._resolve_pulse(pulse,model.parameters)
+        resolvedpulse = QuantumDevices._resolve_pulse(pulse,model.resolved_parameters)
         working = QuantumGate(:scalar_gate,gate)
         for scalar in (0,2pi,2+3im)
             compiled = make_hamiltonian(prepared;scalar,herm_check=0)

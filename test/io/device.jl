@@ -2,8 +2,7 @@ using YAML, SHA
 @testset "Complete device folders" begin
     QD=QuantumDevices
     device=QuantumDevice(:portable)
-    legacy=QuantumDevice(device.name,device.components,device.interactions,device.recipes,device.explicit_parameters,
-        device.operators,device.interactions_for,device.interaction_components,device.metadata)
+    legacy=QuantumDevice(device.name,device.components,device.interactions,device.recipes,device.metadata)
     @test isempty(legacy.gates)
     q=make_resonator(:q;dimension=2,frequency=1.)
     add_component!(device,q)
@@ -45,10 +44,10 @@ using YAML, SHA
     changed=setpath(recipe,"max_dimension",999)
     @test QD.intern_recipe!(w,changed,"changed")["id"]!=first["id"]
     # Canonical maps ignore insertion order, but exact values/configuration remain semantic.
-    left=Leaf(component=:q,dimension=2,kwargs=(;notes=Dict(:a=>1,:b=>2)))
-    right=Leaf(component=:q,dimension=2,kwargs=(;notes=Dict(:b=>2,:a=>1)))
+    left=Leaf(component=:q,dimension=2,parameters=Dict(q.variables["ν"]=>1.))
+    right=Leaf(component=:q,dimension=2,parameters=Dict(q.variables["ν"]=>1.))
     @test QD.intern_recipe!(w,left,"left")["id"]==QD.intern_recipe!(w,right,"right")["id"]
-    typed=Leaf(component=:q,dimension=2,kwargs=(;notes=Dict(:a=>Int32(1),:b=>2)))
+    typed=Leaf(component=:q,dimension=2,parameters=Dict(q.variables["ν"]=>Int32(1)))
     @test QD.intern_recipe!(w,typed,"typed")["id"]!=QD.intern_recipe!(w,left,"left")["id"]
     defaults1=Leaf(component=:q,dimension=2,parameters=Dict(q.variables["ν"]=>1.))
     defaults2=Leaf(component=:q,dimension=2,parameters=Dict(q.variables["ν"]=>2.))
@@ -71,7 +70,7 @@ using YAML, SHA
     restored_unresolved = load_device(joinpath(root,"unresolved"))
     @test isequal(restored_unresolved.variables,physical.variables)
     @test isequal(restored_unresolved.parameters,physical.parameters)
-    @test ismissing(restored_unresolved.parameters["unresolved"])
+    @test isempty(restored_unresolved.parameters["unresolved"])
     # A tiny calibration owns complete reference arrays and can replay/continue portably.
     prepared=build(device,replacement)
     A=Symbolics.variable(:portable_A)

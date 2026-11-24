@@ -41,7 +41,7 @@ freeze_recipe_value(value::Pair) =
     freeze_recipe_value(first(value)) => freeze_recipe_value(last(value))
 freeze_recipe_value(value::NamedTuple) = map(freeze_recipe_value, value)
 freeze_recipe_value(value::Function) = value
-recipe_value_stable(value::Union{Function, Number, Symbol, String, OperatorGenerator}) = true
+recipe_value_stable(value::Union{Function, Number, Symbol, String}) = true
 # Immutable custom values are accepted only when their fields are also stable.
 function recipe_value_stable(value)
     ismutable(value) && return false

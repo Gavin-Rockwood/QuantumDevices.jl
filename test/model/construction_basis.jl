@@ -4,7 +4,7 @@
     r = add_component!(d,make_transmon(:r,.28,17.;dimension=7))
     leaf = build(d,Leaf(component=:q))
     generators = Dict(ref=>generator(5) for (ref,generator) in QuantumDevices.component_operator_generators(q))
-    rawH = evaluate(q.hamiltonian,leaf.parameters,generators)
+    rawH = evaluate(q.hamiltonian,leaf.resolved_parameters,generators)
     @test leaf.H ≈ rawH
     @test make_hamiltonian(leaf) ≈ rawH
     @test leaf.operators[OperatorRef(:q,:charge)] ≈ generators[OperatorRef(:q,:charge)]
@@ -19,9 +19,11 @@
     coupled = Recipe((left=left,right=right);interactions=[Interaction(:coupling,
         .03*q.operators["charge"]*r.operators["charge"])])
     amplitude = Symbolics.variable(:basis_drive)
-    charge = coupled.inputs.left.operators.charge
-    term = Interaction(:square,amplitude*charge^2;parameters=Dict(amplitude=>0.))
-    prepared = build(d,GateRecipe(coupled;terms=[term],duration=.05))
+    gate_model = draft(coupled)
+    gate_model.overrides[amplitude] = 0.
+    charge = gate_model.inputs.left.operators.charge
+    term = Interaction(:square,amplitude*charge^2)
+    prepared = build(d,GateRecipe(gate_model;terms=[term],duration=.05))
     model = prepared.model
     lm,rm = build(d,left),build(d,right)
     P1,P2 = input_basis_map(lm),input_basis_map(rm)
@@ -96,8 +98,10 @@ end
     # A tiny objective evaluation, without an optimizer or calibration scan.
     target = Matrix{ComplexF64}(I,4,4)
     drive = Symbolics.variable(:construction_drive)
-    term = Interaction(:drive,drive*recipe.inputs.a.operators.x;parameters=Dict(drive=>0.))
-    driven = build(d,GateRecipe(recipe;terms=[term],controls=[Control(:drive,drive,Pulse(Constant(;duration=.07);duration=.07,amplitude=0.))]))
+    gate_model = draft(recipe)
+    gate_model.overrides[drive] = 0.
+    term = Interaction(:drive,drive*gate_model.inputs.a.operators.x)
+    driven = build(d,GateRecipe(gate_model;terms=[term],controls=[Control(:drive,drive,Pulse(Constant(;duration=.07);duration=.07,amplitude=0.))]))
     problem = CalibrationProblem(driven,["drive/amplitude"],target;
         evolution_settings=(;abstol=1e-10,reltol=1e-10))
     @test all(isapprox.(problem.states,states(driven.model)))

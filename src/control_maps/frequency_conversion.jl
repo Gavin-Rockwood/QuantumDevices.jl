@@ -117,7 +117,7 @@ function _scan_transition_response(device,recipe,parameter,measure,flux_interval
     owners = collect_input_declarations(device,physical).owners
     _validate_control_map_outputs(AffineControlMap(:response_parameter;input=:voltage,output=parameter,gain=1),_recipe_map_variables(device,owners))
     reference = build(device,physical;parameters)
-    held = Dict{Num,Number}(reference.parameters)
+    held = Dict{Num,Number}(reference.resolved_parameters)
     haskey(held,parameter) || throw(ArgumentError("swept parameter has no physical reference value"))
     response_at_flux = phi -> begin
         overrides = copy(held)

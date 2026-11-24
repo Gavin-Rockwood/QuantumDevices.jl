@@ -22,8 +22,8 @@
     @test make_hamiltonian(target, Symbolics.Num[]) isa QT.QuantumObject
     @test make_hamiltonian(target, ()) ≈ make_hamiltonian(target)
     @test make_hamiltonian(target; auto_time_dependence=false) ≈ make_hamiltonian(target)
-    @test static(Dict(flux=>target.parameters[flux], ng=>target.parameters[ng]), 0.0) ≈ make_hamiltonian(target)
-    @test dynamic(Dict(flux=>(t->target.parameters[flux]), ng=>(t->target.parameters[ng])), 0.0) ≈ make_hamiltonian(target)
+    @test static(Dict(flux=>target.resolved_parameters[flux], ng=>target.resolved_parameters[ng]), 0.0) ≈ make_hamiltonian(target)
+    @test dynamic(Dict(flux=>(t->target.resolved_parameters[flux]), ng=>(t->target.resolved_parameters[ng])), 0.0) ≈ make_hamiltonian(target)
     @test_throws MethodError make_hamiltonian(target; free_parameters=Dict(flux=>0.7))
     @test_throws ArgumentError make_hamiltonian(target, flux)
     @test_throws ArgumentError make_hamiltonian(target, [flux, :ng])
@@ -31,13 +31,13 @@
     @test make_hamiltonian(leaf)*input_basis_map(leaf) ≈ input_basis_map(leaf)*QuantumDevices.spectrum_operator(leaf.spectrum)
     for t in (0.0, 0.37, 0.8)
         runtime = Dict(flux=>0.2+t/4, ng=>0.1+t/10)
-        values = merge(target.parameters, Dict(flux=>runtime[flux],ng=>runtime[ng]))
+        values = merge(target.resolved_parameters, Dict(flux=>runtime[flux],ng=>runtime[ng]))
         expected = embedding' * evaluate(transmon.hamiltonian, values, generators) * embedding
         @test static(runtime, t) ≈ expected
         @test dynamic(Dict(flux=>(t->0.2+t/4),ng=>(t->0.1+t/10)), t) ≈ expected
     end
-    @test target.parameters[flux] == 0.2
-    @test target.parameters[transmon.variables["EC"]] == 0.31
+    @test target.resolved_parameters[flux] == 0.2
+    @test target.resolved_parameters[transmon.variables["EC"]] == 0.31
     @test_throws ArgumentError make_hamiltonian(target, [Symbolics.variable(:unknown)])
     @test_throws ArgumentError make_hamiltonian(target, [:flux])
     @test_throws KeyError static(Dict(), 0.0)
@@ -68,7 +68,7 @@ end
     @test make_hamiltonian(model;herm_check=0).data == cached
     @test original.data == cached
     @test model.operator_products[((OperatorRef(:fixture,:perturbed),false),)] === original
-    @test isempty(model.parameters)
+    @test isempty(model.resolved_parameters)
     large,largeoriginal=perturbed_model(1e-6)
     @test make_hamiltonian(large).data == largeoriginal.data
     @test ishermitian(make_hamiltonian(large;herm_check=1e-4))

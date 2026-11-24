@@ -16,10 +16,12 @@ _runtime_callback_allocations(f,p)=@allocated f(p,.2)
     q=add_component!(device,make_qubit(:q;frequency=.13))
     model_recipe=Recipe(device,[q])
     a,b=Symbolics.variable(:runtime_a),Symbolics.variable(:runtime_b)
-    term=Interaction(:nonlinear,a^2*b*model_recipe.inputs.q.operators.x;parameters=Dict(a=>0.,b=>0.))
+    gate_recipe = draft(model_recipe)
+    merge!(gate_recipe.overrides, Dict(a=>0.,b=>0.))
+    term=Interaction(:nonlinear,a^2*b*gate_recipe.inputs.q.operators.x)
     first_pulse=Pulse(Gaussian(.2;duration=1.);amplitude=0.)
     second_pulse=Pulse(Constant(;duration=1.);amplitude=.3)
-    gate=GateRecipe(model_recipe;terms=[term],controls=[Control(:drive,a,first_pulse),Control(:bias,b,second_pulse)])
+    gate=GateRecipe(gate_recipe;terms=[term],controls=[Control(:drive,a,first_pulse),Control(:bias,b,second_pulse)])
     prepared=build(device,gate)
     paths=("drive/amplitude","drive/duration","bias/amplitude")
     H=make_hamiltonian(prepared;free_parameters=paths)
@@ -63,7 +65,7 @@ _runtime_callback_allocations(f,p)=@allocated f(p,.2)
     @test getpath(evolution.recipe,"drive/amplitude")==.4
     @test getpath(evolution.recipe,"drive/envelope/sigma")≈.28
     @test evolution.solver.runtime_parameters==params
-    extension_gate=GateRecipe(model_recipe;terms=[term],controls=[Control(:drive,a,Pulse(RuntimeExtensionEnvelope(.3);duration=1.)),Control(:bias,b,second_pulse)])
+    extension_gate=GateRecipe(gate_recipe;terms=[term],controls=[Control(:drive,a,Pulse(RuntimeExtensionEnvelope(.3);duration=1.)),Control(:bias,b,second_pulse)])
     extension_prepared=build(device,extension_gate)
     extension_result=evolve(extension_prepared;free_parameters=("drive/amplitude",),params=Dict("drive/amplitude"=>.2))
     @test extension_result.recipe.duration==1.

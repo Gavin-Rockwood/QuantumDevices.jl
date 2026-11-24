@@ -25,7 +25,7 @@ function evolve(prepared::PreparedGate; free_parameters=(),params=nothing,states
     runtime = _prepare_gate_runtime(prepared.recipe,prepared.parameters,free_parameters,params)
     duration = runtime.duration
     isfinite(duration) && duration > 0 || throw(ArgumentError("Evolution duration must be finite and positive"))
-    reference = _gate_reference(prepared.model)
+    reference = _gate_reference(prepared.model;parameters=prepared.parameters)
     inputs = isnothing(states) ? nothing : _gate_kets(reference,states)
     initial = isnothing(inputs) ? _reference_identity(reference) : _gate_columns(inputs)
     vacuum_energy = remove_vacuum ? reference_vacuum_energy(prepared.model) : 0

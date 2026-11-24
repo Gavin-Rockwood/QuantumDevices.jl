@@ -2,7 +2,7 @@
 function _projected_drive_operator(model::NumericalModel,expression::Sym)
     _check_reuse_scope(expression,model.recipe.definition)
     physical=physical_expression(expression)
-    return compile_hamiltonian(physical_terms(physical),model.operator_products,model.parameters,Set{Num}(),model_identity(model);
+    return compile_hamiltonian(physical_terms(physical),model.operator_products,model.resolved_parameters,Set{Num}(),model_identity(model);
         scalar=1,energy_shift=0,herm_check=0)
 end
 function _bare_drive_frequency(model,states,photon_order)

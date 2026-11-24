@@ -2,7 +2,11 @@ function Base.getproperty(model::NumericalModel, name::Symbol)
     if name == :control_maps
         return getfield(model,:recipe).definition.control_maps
     elseif name == :parameters
-        return getfield(model, :recipe).parameters
+        return recipe_parameter_view(getfield(model,:recipe);source=:model)
+    elseif name == :variables
+        return recipe_variables(getfield(model,:recipe))
+    elseif name == :resolved_parameters
+        return getfield(getfield(model,:recipe),:parameters)
     elseif name == :states
         return getfield(model, :eigensystem).states
     elseif name in (:energies, :spectrum)
@@ -15,7 +19,7 @@ function Base.getproperty(model::NumericalModel, name::Symbol)
 end
 
 Base.propertynames(model::NumericalModel, private::Bool = false) =
-    (fieldnames(typeof(model))..., :parameters, :states, :energies, :spectrum, :labeling, :control_maps)
+    (fieldnames(typeof(model))..., :parameters, :variables, :resolved_parameters, :states, :energies, :spectrum, :labeling, :control_maps)
 """Return energy-ordered eigenstates in the model construction basis."""
 states(model::NumericalModel) =
     collect(model.states)

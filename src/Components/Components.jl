@@ -1,7 +1,6 @@
-include("OperatorGenerator.jl")
-include("BuiltinGenerator.jl")
 include("OperatorDeclarations.jl")
 include("Component.jl")
+include("corrections.jl")
 include("overloads.jl")
 include("constructors/qubit.jl")
 include("constructors/resonator.jl")

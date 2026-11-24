@@ -3,14 +3,14 @@
     EC, EJ, ng = 0.27, 18.4, 0.23
     transmon = make_transmon(:t, EC, EJ; ng, dimension, metadata=(source=:test,))
     @test transmon.hamiltonian isa Sym
-    @test all(g -> g isa OperatorGenerator, values(transmon.operator_generators))
+    @test all(g -> g isa Function, values(transmon.operator_generators))
     @test transmon.label == "t"
     @test transmon.metadata == (source=:test,)
     @test make_transmon(:t; EC, EJ, label=nothing).label === nothing
     @test make_transmon(; name=:t, EC, EJ, label=:short).label == "short"
-    @test transmon.operator_generators["charge"]() isa QT.QuantumObject
-    @test size(transmon.operator_generators["jump"](7; ignored=true)) == (7, 7)
-    @test make_transmon(:default, EC, EJ).operator_generators["charge"].default_dimension == 101
+    @test transmon.operator_generators["charge"](dimension) isa QT.QuantumObject
+    @test size(transmon.operator_generators["jump"](7)) == (7, 7)
+    @test make_transmon(:default, EC, EJ).dimension == 101
     for bad in (0, -1, 2, 10)
         @test_throws ArgumentError make_transmon(:bad, EC, EJ; dimension=bad)
         @test_throws ArgumentError transmon.operator_generators["charge"](bad)
@@ -34,6 +34,8 @@
     @test build(device, Leaf(component=:t)).spectrum ≈ idle.spectrum
 
     tunable = make_flux_tunable_transmon(:f, EC, EJ; ng, d=-0.17, dimension)
+    @test tunable.operator_generators["charge"] === transmon.operator_generators["charge"]
+    @test tunable.operator_generators["jump"] === transmon.operator_generators["jump"]
     add_component!(device, tunable)
     @test Set(keys(tunable.variables)) == Set(["EC", "EJmax", "d", "ng", "flux"])
     @test tunable.label == "f"
@@ -60,12 +62,12 @@
     @test_throws ArgumentError cospi(op(:t, :charge))
     @test_throws ArgumentError sinpi(op(:t, :charge))
     @test_throws ArgumentError sqrt(op(:t, :charge))
-    interaction = Interaction(:capacitive, 0.03 * coefficient * op(:t, :charge) * op(:f, :charge); parameters=Dict(p=>0.31))
+    interaction = Interaction(:capacitive, 0.03 * coefficient * op(:t, :charge) * op(:f, :charge))
     add_interaction!(device, interaction)
     add_recipe!(device, :t_leaf, Leaf(component=:t))
     add_recipe!(device, :f_leaf, Leaf(component=:f))
     coupled = build(device, Combine(inputs=[Input(:t, :t_leaf, [0, 1, 2]),
-        Input(:f, :f_leaf, [0, 1, 2])], interactions=[:capacitive]))
+        Input(:f, :f_leaf, [0, 1, 2])], interactions=[:capacitive], parameters=Dict(p=>0.31)))
     embedding = QuantumDevices.selection(dimension, [1, 2, 3])
     projected_charge = embedding' * input_basis_map(idle)' * idle.operators[OperatorRef(:t, :charge)] * input_basis_map(idle) * embedding
     energies = QuantumDevices.spectrum_operator(idle.spectrum[1:3])

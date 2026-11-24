@@ -125,9 +125,13 @@ conversion copies stored `model.H`, assembled and cleaned once at build. Custom
 threshold applies after scaling. Mutating caches does not rebuild the stored H;
 rebuild the model after changing captured reference data.
 
-Designated parameters read runtime values using `p[variable](t)`, or
-`p[variable]` when `auto_time_dependence=false`. All other parameters
-retain their resolved build values. Neither the basis nor truncations change.
+Select free inputs by atomic Symbolics variable or full name from `model.variables`
+(for example `["flux_q1", "flux_c"]`). Each selector determines its runtime dictionary
+key: a name reads `p["flux_q1"]`, while a symbolic selector reads `p[variable]`.
+Mixed selectors are supported; selecting the same input twice is an error.
+With `auto_time_dependence=true`, each selected entry is a function evaluated
+at `t`; with `false`, entries are numerical values. All other parameters retain
+their resolved build values. Neither the basis nor truncations change.
 `auto_time_dependence` has no effect on static conversions.
 `scalar` and fixed multiplicative coefficient factors are folded into fresh
 operator matrices once; runtime callbacks evaluate only residual expressions.
@@ -158,11 +162,28 @@ function make_hamiltonian(
     remove_vacuum::Bool = false,
     herm_check = 1e-9,
 )
-    !(free_parameters isa Num) && applicable(iterate, free_parameters) ||
-        throw(ArgumentError("free_parameters must be a collection of Symbolics variables"))
-    all(p -> is_parameter(p), free_parameters) ||
-        throw(ArgumentError("free_parameters must contain atomic Symbolics variables"))
-    free = Set{Num}(free_parameters)
+    !(free_parameters isa Union{Num,AbstractString}) && applicable(iterate, free_parameters) ||
+        throw(ArgumentError("free_parameters must be a collection of Symbolics variables or full names"))
+    variables = model.variables
+    free = Set{Num}()
+    coefficient_bindings = Dict{Num,Function}()
+    for parameter in free_parameters
+        variable = if parameter isa AbstractString
+            haskey(variables,parameter) || throw(ArgumentError(
+                "unknown model input name $(repr(parameter)); available names: $(join(sort!(collect(keys(variables))), ", "))"))
+            variables[parameter]
+        else
+            is_parameter(parameter) || throw(ArgumentError(
+                "free_parameters must contain atomic Symbolics variables or their full names"))
+            parameter
+        end
+        variable in free && throw(ArgumentError(
+            "duplicate free-parameter selectors for $variable; select each model input once"))
+        push!(free,variable)
+        coefficient_bindings[variable] = let key=parameter
+            auto_time_dependence ? ((p,t)->p[key](t)) : ((p,t)->p[key])
+        end
+    end
     issubset(free, refs(model.hamiltonian, :param)) ||
         throw(ArgumentError("free parameters must appear in the model Hamiltonian"))
     # The default static conversion copies the already captured reference H.
@@ -172,6 +193,6 @@ function make_hamiltonian(
         return remove_vacuum ? model.H - reference_vacuum_energy(model)*model_identity(model) : copy(model.H)
     end
     return compile_hamiltonian(physical_terms(model.hamiltonian),model.operator_products,
-        model.parameters,free,model_identity(model);scalar,herm_check,auto_time_dependence,
+        model.resolved_parameters,free,model_identity(model);scalar,herm_check,auto_time_dependence,coefficient_bindings,
         energy_shift=remove_vacuum ? reference_vacuum_energy(model) : 0)
 end

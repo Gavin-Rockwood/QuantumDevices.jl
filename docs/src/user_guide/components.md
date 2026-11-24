@@ -40,7 +40,10 @@ variables carry no idle-value field.
 Resonator dimensions must be positive integers. Transmon dimensions must be
 positive odd integers: `dimension = 2ncut + 1`, covering charge states
 `-ncut:ncut`. Increase the parent cutoff and retained-state count independently
-to check convergence. `initial_dims` in a recipe can override factory dimensions.
+to check convergence. `Component.dimension` stores the default construction cutoff; an explicit
+`Leaf.dimension` or `initial_dims` in a recipe takes precedence. Custom components
+without a default need an explicit recipe dimension. Generator overrides change
+functions only, never the cutoff.
 All transmon Hamiltonian inputs use frequency units `E/h`, and `flux` is `Φext/Φ0`.
 
 `build(device, recipe; parameters=Dict(t.variables["EJ"]=>6.0))` recomputes the
@@ -50,11 +53,45 @@ varies only the scalar coefficients in the existing fixed basis.
 ## Custom components
 
 Use `component_parameters(name; alias=value, ...)` for the variable and idle
-maps, and `component_operators(name; local_name=OperatorGenerator(...))` for
+maps, and `component_operators(name; local_name=dimension -> numerical_operator(dimension))` for
 the symbolic operator and factory maps. Pass all four maps to
-`Component(name; variables, parameters, operators, operator_generators, hamiltonian)`.
-The factory callback accepts a requested dimension and any keyword options.
+`Component(name; variables, parameters, operators, operator_generators, hamiltonian, dimension=4)`.
+Every generator value is an ordinary function called with exactly one positional
+dimension, with no keyword arguments. Capture fixed configuration in a closure,
+such as `dimension -> scale * num(dimension)`; adapt a dimension-independent
+factory as `dimension -> generator()`. Direct calls also supply a dimension,
+for example `r.operator_generators["n"](4)`.
 See [extensions](../development/extensions.md) for a complete example.
+
+## Hamiltonian corrections
+
+Add a component-local term before registration so it participates in leaf
+Hamiltonian assembly, diagonalization, and every subsequent projection:
+
+```@example components
+import Symbolics
+K = Symbolics.variable(:K_r)
+n = r.operators["n"]
+r_kerr = apply_correction(r, K / 2 * n * (n - 1);
+    parameters=Dict("K" => (K, -0.02)))
+@assert r_kerr.parameters["K"] == -0.02
+@assert !haskey(r.parameters, "K")
+r_kerr.hamiltonian
+```
+
+New parameter declarations use `local_alias => (atomic_symbol, finite_default)`.
+Existing symbols and defaults are preserved; conflicting aliases/defaults and
+unused declarations are rejected. Existing operators need no extra functions.
+A new same-owner atomic operator needs an explicit one-argument function through
+`operator_generators=Dict("x" => dimension -> numerical_x(dimension))`.
+Matrices are never inferred from symbolic names. Foreign or recipe-bound
+operators cannot appear in a component correction.
+
+`apply_correction` returns an independent component with the same name; it leaves
+the input and any device using it unchanged. Register the returned component in
+the intended device. It does not replace an already registered component or alter
+saved snapshots. Use this component Hamiltonian path for self-Kerr rather than
+relying on automatic cross-component interactions.
 
 ## Device operator ownership and interaction membership
 
@@ -63,8 +100,8 @@ Generator values may still be replaced under an existing key.
 The component keeps its identity, so both a component passed to `add_component!`
 and the returned component can be passed to `Recipe`. Draft components remain
 editable. Constructor input dictionaries are copied; changing them cannot change
-registered declarations. Parameter defaults remain editable and are validated
-when the device defaults are assembled. Generator callables retain their identity;
+registered declarations. Component idle defaults remain editable and are validated
+within their physical context when components or recipes are prepared. Generator callables retain their identity;
 mutable state captured by a callable remains the caller's responsibility.
 
 ```julia
@@ -93,7 +130,8 @@ Membership values are immutable tuples of names, resolved through
 including interactions involving three or more components. Scalar interactions
 have an empty component tuple, and a single-component interaction has one owner.
 Recipe-local interactions never enter these device indexes. Registered interactions
-capture their operator-relevant definition; numerical defaults remain editable.
+capture their symbolic definition. Supply their values through recipe/build
+parameters; component idle defaults remain editable.
 Register components and interactions through `add_component!` and
 `add_interaction!` so validation and all indexes update together.
 

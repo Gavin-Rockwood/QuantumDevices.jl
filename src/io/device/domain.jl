@@ -1,6 +1,6 @@
 import DifferentialEquations, ADTypes
 const _IO_DOMAIN_TYPES = Dict{String,Any}(
-    "OperatorGenerator"=>OperatorGenerator,"Input"=>Input,"InputBinding"=>InputBinding,
+    "Input"=>Input,"InputBinding"=>InputBinding,
     "ResolvedRecipe"=>ResolvedRecipe,"ControlInput"=>ControlInput,"Control"=>Control,"LabelDiagnostic"=>LabelDiagnostic,
     "DressedStates"=>DressedStates,"PreparedGate"=>PreparedGate,"GateEvolution"=>GateEvolution)
 function _fields_record(x,w,path;omit=())
@@ -26,7 +26,7 @@ function _domain_record(x,w,path)
     if x isa Component
         f=Dict("name"=>_encode_record(x.name,w,path),"variables"=>_encode_record(x.variables,w,path),"parameters"=>_encode_record(x.parameters,w,path),
           "operators"=>_encode_record(Dict(x.operators),w,path),"operator_generators"=>_encode_record(Dict(x.operator_generators),w,path),
-          "hamiltonian"=>_encode_record(x.hamiltonian,w,path),"type"=>_encode_record(x.type,w,path),"label"=>_encode_record(x.label,w,path),"metadata"=>_encode_record(x.metadata,w,path))
+          "hamiltonian"=>_encode_record(x.hamiltonian,w,path),"dimension"=>_encode_record(x.dimension,w,path),"type"=>_encode_record(x.type,w,path),"label"=>_encode_record(x.label,w,path),"metadata"=>_encode_record(x.metadata,w,path))
         return Dict("tag"=>"domain","kind"=>"Component","fields"=>f)
     end
     if x isa GateRecipe
@@ -117,8 +117,8 @@ function _restore_domain(d,r,path)
     kind=="TrackingResult" && delete!(expected,"_lookup")
     Set(keys(d["fields"]))==expected || _ioerror(path,"domain field schema mismatch for $kind")
     f=(; (Symbol(k)=>_decode_record(v,r,"$path/$k") for (k,v) in d["fields"])...)
-    kind=="Component" && return Component(f.name;variables=f.variables,parameters=f.parameters,operators=f.operators,operator_generators=f.operator_generators,hamiltonian=f.hamiltonian,type=f.type,label=f.label,metadata=f.metadata)
-    kind=="Interaction" && return Interaction(f.name,f.expression,f.variables,f.parameters,f.metadata)
+    kind=="Component" && return Component(f.name;variables=f.variables,parameters=f.parameters,operators=f.operators,operator_generators=f.operator_generators,hamiltonian=f.hamiltonian,dimension=f.dimension,type=f.type,label=f.label,metadata=f.metadata)
+    kind=="Interaction" && return Interaction(f.name,f.expression,f.variables,f.metadata)
     kind=="GateRecipe" && return _physical_gate(f.model_recipe,f.controls,f.terms,f.duration,f.duration_policy,f.metadata)
     kind=="QuantumGate" && return QuantumGate(f.name,_io_working(f.recipe),f.calibration,f.metadata,Dict{Symbol,Any}(f.artifacts))
     kind=="PreparedGate" && return PreparedGate(f.recipe,f.model,Sym[f.terms...],Dict{Num,Number}(f.parameters),f.context)

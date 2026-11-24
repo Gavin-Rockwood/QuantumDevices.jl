@@ -114,7 +114,7 @@ Changing the reference recipe requires a fresh build/problem.
 # Rebase pulse definitions onto an existing endpoint without rebuilding its basis.
 function _calibration_model(prepared::PreparedGate, model::NumericalModel)
     definition = draft(model.recipe.definition)
-    merge!(definition.parameters,model.parameters)
+    merge!(definition.overrides,model.resolved_parameters)
     old = prepared.recipe.model_recipe
     empty!(definition.control_maps)
     merge!(definition.control_maps,old.control_maps)
@@ -168,7 +168,7 @@ function _calibration_problem(prepared::PreparedGate,selection,target;symbolic::
         throw(ArgumentError("invalid bounds or initial value outside bounds"))
     initial_recipe = _candidate_recipe(captured.recipe,coordinates,parameterization,initial)
     captured = PreparedGate(initial_recipe,captured.model,captured.terms,captured.parameters,captured.context)
-    reference = _gate_reference(captured.model)
+    reference = _gate_reference(captured.model;parameters=captured.parameters)
     selections,state_spec = _capture_calibration_states(reference,states)
     T = _calibration_target(target)
     size(T,1)==length(selections) || throw(DimensionMismatch("target does not match ordered states"))

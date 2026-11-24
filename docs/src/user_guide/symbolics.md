@@ -58,32 +58,27 @@ keys must be atomic scalar variables, rather than composite expressions.
 
 ```julia
 g = Symbolics.variable(:shared_coupling)
-interaction = Interaction(:exchange, g*a*b, Dict(g=>0.02))
-```
-
-An interaction discovers every scalar variable used by its expression in
-`interaction.variables`, keyed by full symbolic name. Its `parameters` map stores
-only explicitly declared defaults under those same names. You may omit defaults
-when components, device declarations, or build overrides will supply them.
-Both `Dict(g=>0.02)` and `Dict("shared_coupling"=>(g,0.02))` declare the same
-default; a string key must equal the variable's full symbolic name. Duplicate or
-absent-expression defaults are rejected. Variables are never renamed.
-
-Declare shared physical defaults once:
-
-```julia
-add_parameters!(device, Dict(g=>0.02))
 interaction = Interaction(:exchange, g*a*b)
 ```
 
+An interaction discovers every scalar variable used by its expression in
+`interaction.variables`, keyed by full symbolic name. It stores the expression
+and metadata. Numerical values belong to the consuming recipe or build:
+
+```julia
+add_interaction!(recipe,interaction)
+recipe.parameters[g] = 0.02
+model = build(device,recipe)
+```
+
 `device.variables` maps full symbolic names (for example, `"EC_q1"`) to
-Symbolics variables. `device.parameters` uses the same string keys and returns
-assigned defaults or `missing` for unassigned variables. Both are fresh views. Use
-`add_parameters!` to add declarations; editing that temporary view does not update
-the device. Equal declarations are allowed, while conflicting defaults report
-both values and sources. Conflicts are checked before recipe/build overrides or
-controls, so those assignments cannot conceal inconsistent defaults. Missing
-defaults are deferred until build and report required variables and use sites.
+Symbolics variables. `device.parameters` groups each variable's resolved values
+or `missing` by their consuming recipe and captured-history locations. Both are
+fresh views; editing them does not update the device. Independent roots may use
+different values. Conflicting assignments within one root report their values
+and sources. Missing values are deferred until build and report required
+variables and use sites. See the [parameter guide](parameters.md) for inventory
+and assignment examples.
 
 ## Fixed-basis runtime values
 

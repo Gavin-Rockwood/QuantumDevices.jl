@@ -17,9 +17,11 @@ device = QuantumDevice(:rotation)
 q = add_component!(device,make_qubit(:q;frequency=0.0))
 recipe = Recipe(device,[q])
 A = Symbolics.variable(:drive_amplitude)
-drive = Interaction(:drive,A*recipe.inputs.q.operators.x;parameters=Dict(A=>0.))
+gate_model = draft(recipe)
+gate_model.parameters[A] = 0.
+drive = Interaction(:drive,A*gate_model.inputs.q.operators.x)
 pulse = Pulse(Constant(;duration=1.);amplitude=.25)
-definition = GateRecipe(recipe;terms=[drive],controls=[Control(:drive,A,pulse)])
+definition = GateRecipe(gate_model;terms=[drive],controls=[Control(:drive,A,pulse)])
 prepared = build(device,definition)
 result = evolve(prepared;saveat=range(0,1;length=41),abstol=1e-9,reltol=1e-9)
 U = unitary(result)
@@ -81,7 +83,7 @@ kets for a model with tracked physical labels.
 
 Controls replace a variable's full value, including its baseline. For a flux
 excursion choose the idle offset explicitly. An additional charge-drive variable
-can instead have a zero idle default supplied by its extra Interaction.
+can instead have a zero idle value assigned in the gate-owned model recipe.
 
 Gate duration defaults to the latest delayed control endpoint. An explicit
 duration can include trailing idle time, but cannot cut a pulse short. Without

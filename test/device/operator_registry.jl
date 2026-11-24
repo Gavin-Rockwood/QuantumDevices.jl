@@ -43,7 +43,7 @@
     @test_throws ArgumentError add_interaction!(d,Interaction(:unknown,op(:q,:missing)))
     @test_throws ArgumentError add_interaction!(d,Interaction(:foreign,op(:unknown,:x)))
     @test_throws ArgumentError add_interaction!(d,Interaction(:scoped,scoped))
-    @test_throws ArgumentError add_interaction!(d,Interaction(:conflict,q.variables["ν"]*q.operators["x"];parameters=Dict(q.variables["ν"]=>6.)))
+    @test isequal(Interaction(:symbolic,q.variables["ν"]*q.operators["x"]).variables[string(q.variables["ν"])],q.variables["ν"])
     @test before == (length(d.components),length(d.interactions),Dict(d.interactions_for),Dict(d.interaction_components))
     conflict_component = make_qubit(:conflicting;subscript=:q,frequency=6.)
     @test_throws ArgumentError add_component!(d,conflict_component)
@@ -70,7 +70,7 @@
     add_interaction!(recipe,localterm)
     @test d.interactions_for[:q] == (:hyper,:single)
     @test !haskey(d.interaction_components,:local)
-    rebuilt = QuantumDevice(d.name,d.components,d.interactions,d.recipes,d.explicit_parameters,d.metadata)
+    rebuilt = QuantumDevice(d.name,d.components,d.interactions,d.recipes,d.metadata)
     @test rebuilt.interaction_components[:hyper] == (:q,:r,:s)
     @test rebuilt.operators[op(:q,:x)] == :q
     @test_throws Exception d.operators.by_operator[OperatorRef(:q,:x)] = :r

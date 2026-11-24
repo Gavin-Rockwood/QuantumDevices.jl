@@ -6,14 +6,13 @@ make_qubit
 make_resonator
 make_transmon
 make_flux_tunable_transmon
-OperatorGenerator
+apply_correction
 OperatorRegistry
 get_operators
 get_components
 QuantumDevice
 add_component!
 add_interaction!
-add_parameters!
 Recipe
 Leaf
 Combine
@@ -44,3 +43,12 @@ retain physical phases.
 
 `model.H` is the stored numerical reference. `get_hamiltonian` is symbolic;
 use `make_hamiltonian` to copy, compile, scale, or shift a numerical Hamiltonian.
+
+For model free inputs, select symbolic variables or full names from
+`model.variables`, for example `make_hamiltonian(model, ["flux_q1", "flux_c"])`.
+Each selector is also its runtime dictionary key: string selectors read
+`p["flux_q1"]`, and symbolic selectors read `p[flux_q1]`. Mixed selectors are
+supported. Each input may appear only once, including across its string and
+symbolic forms. With `auto_time_dependence=true`, dictionary entries are functions
+of time; with `false`, they are numerical values. Gate pulse-path selectors keep
+their existing meaning.

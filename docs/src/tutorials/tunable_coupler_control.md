@@ -106,7 +106,7 @@ $$g_{12}=8E_{C1}E_{C2}(1/E_{C12}+E_{Cc}/(E_{C1c}E_{C2c})).$$
 ```julia
 Symbolics.@variables g1c g2c g12
 η = EC12*ECc/(EC1c*EC2c)
-add_parameters!(device,Dict(g1c=>8EC1*ECc/EC1c,g2c=>8EC2*ECc/EC2c,
+merge!(recipe.parameters,Dict(g1c=>8EC1*ECc/EC1c,g2c=>8EC2*ECc/EC2c,
     g12=>8(1+η)*EC1*EC2/EC12))
 n1 = recipe.inputs.q1.operators.charge
 n2 = recipe.inputs.q2.operators.charge
@@ -259,10 +259,12 @@ when targeting a single-qubit gate in the two-qubit computational space.
 ```julia
 q1_frequency = abs(stateenergy(model,(1,0,0))-stateenergy(model,(0,0,0)))
 drive_amplitude = Symbolics.variable(:microwave_amplitude)
-microwave_term = Interaction(:q1_drive,drive_amplitude*n1;parameters=Dict(drive_amplitude=>0.))
+microwave_model = draft(recipe)
+microwave_model.parameters[drive_amplitude] = 0.
+microwave_term = Interaction(:q1_drive,drive_amplitude*microwave_model.inputs.q1.operators.charge)
 microwave = Pulse(SineSquared(;duration=9.027992059968785),q1_frequency;
     amplitude=0.024775449345990953,phase=1.5501484428191823-pi/2)
-microwave_recipe = GateRecipe(recipe;terms=[microwave_term],
+microwave_recipe = GateRecipe(microwave_model;terms=[microwave_term],
     controls=[Control(:drive,drive_amplitude,microwave)])
 microwave_prepared = build(device,microwave_recipe)
 ```

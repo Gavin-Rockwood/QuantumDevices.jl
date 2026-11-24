@@ -42,22 +42,24 @@ end
     @test converted.data != firstmodel.H.data
     # Gate-only declarations/operating points share precedence with ordinary H.
     p = Symbolics.variable(:rebuild_extra)
-    add_parameters!(d,Dict(p=>0.))
     upstream = Recipe(d,[q];parameters=Dict(p=>.2))
     downstream = Recipe(upstream;states=0:1,parameters=Dict(p=>.3))
-    term = Interaction(:extra,p*q.operators["x"];parameters=Dict(p=>0.))
+    term = Interaction(:extra,p*q.operators["x"])
     gate = GateRecipe(downstream;terms=[term],duration=1.)
     prepared = build(d,gate)
     @test prepared.parameters[p] == .3
     @test build(d,gate;parameters=Dict(p=>.4)).parameters[p] == .4
-    @test prepared.model.H ≈ build(d,downstream).H
+    @test prepared.model.H ≈ build(d,Recipe(base;states=0:1)).H
     @test make_hamiltonian(prepared) ≈ prepared.model.H+.3*prepared.model.operators[OperatorRef(:q,:x)]
     @test make_hamiltonian(prepared.model,gate) ≈ make_hamiltonian(prepared)
     upstreamgate = GateRecipe(Recipe(upstream;states=0:1);terms=[term],duration=1.)
     @test build(d,upstreamgate).parameters[p] == .2
     @test make_hamiltonian(build(d,upstreamgate).model,upstreamgate) ≈ make_hamiltonian(build(d,upstreamgate))
-    bad = GateRecipe(downstream;terms=[Interaction(:bad,p*q.operators["x"];parameters=Dict(p=>1.))],duration=1.)
-    @test_throws ArgumentError build(d,bad;parameters=Dict(p=>.4))
+    changed = draft(downstream)
+    changed.overrides[p] = 1.
+    changed_gate = GateRecipe(changed;terms=[Interaction(:changed,p*q.operators["x"])],duration=1.)
+    @test build(d,changed_gate).parameters[p] == 1.
+    @test build(d,changed_gate;parameters=Dict(p=>.4)).parameters[p] == .4
 end
 
 @testset "complete local products projected once and stored reference cleanup" begin
@@ -80,9 +82,9 @@ end
     @test norm(products[(leftword...,rightx...)]-QT.tensor((P'*A*P)*(P'*B*P),QT.sigmax()))>1e-4
     d = QuantumDevice(:stored_cleanup)
     raw = QT.Qobj(ComplexF64[1+1e-11im 0;0 2])
-    operators,generators = component_operators(:near;x=OperatorGenerator((n;kwargs...)->raw,2))
+    operators,generators = component_operators(:near;x=(n->raw))
     component = add_component!(d,Component(:near;variables=Dict(),parameters=Dict(),operators,
-        operator_generators=generators,hamiltonian=operators["x"]))
+        operator_generators=generators, dimension=2,hamiltonian=operators["x"]))
     model = build(d,Leaf(component=:near))
     @test ishermitian(model.H)
     @test make_hamiltonian(model) == model.H

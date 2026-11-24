@@ -22,7 +22,7 @@ module QuantumDevices
     export component_parameters, component_operators, OperatorRef, Sym, op, val, evaluate, latex
 
     include("Components/Components.jl")
-    export OperatorGenerator, Component, make_qubit, make_resonator
+    export apply_correction, Component, make_qubit, make_resonator
     export make_transmon, make_flux_tunable_transmon
 
     include("interactions/interactions.jl")
@@ -37,7 +37,7 @@ module QuantumDevices
 
     include("device/device.jl")
     export OperatorRegistry, get_operators, get_components
-    export QuantumDevice, add_parameters!, add_component!, add_interaction!, add_recipe!, replace_recipe!
+    export QuantumDevice, add_component!, add_interaction!, add_recipe!, replace_recipe!
 
     # Graph inspection needs both recipe definitions and the QuantumDevice type.
     include("recipes/graph.jl")
@@ -70,6 +70,7 @@ module QuantumDevices
     export AvoidedCrossingFit, ResonanceResult, fit_avoided_crossing, find_resonance, stark_shift, plot_resonance
     include("gates/repository.jl")
     export add_gate!, replace_gate!, move_gate!, get_gate, attach_artifact!
+    include("device/parameter_inventory.jl")
     include("io/device/device.jl")
     export save_device, load_device, register_io_codec!
 end

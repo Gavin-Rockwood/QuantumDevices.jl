@@ -4,8 +4,10 @@
     q = add_component!(device,make_qubit(:q;frequency=0.0))
     recipe = Recipe(device,[q])
     coefficient = Symbolics.variable(:result_drive)
-    term = Interaction(:drive,coefficient*recipe.inputs.q.operators.x;parameters=Dict(coefficient=>0.0))
-    working = GateRecipe(recipe;terms=[term],controls=[
+    gate_recipe = draft(recipe)
+    gate_recipe.overrides[coefficient] = 0.0
+    term = Interaction(:drive,coefficient*gate_recipe.inputs.q.operators.x)
+    working = GateRecipe(gate_recipe;terms=[term],controls=[
         Control(:drive,coefficient,Pulse(Constant(;duration=0.1);duration=0.1,amplitude=0.1))])
     prepared = build(device,working)
     evaluations = Ref(0)
@@ -118,8 +120,9 @@
         states=Any[(0,),state(prepared.model,(1,))])
     @test CalibrationResult(mixed,fake).state_keys === nothing
     untracked_recipe = Recipe(device,[q];dressing=false)
+    untracked_recipe.overrides[coefficient] = 0.0
     untracked = build(device,GateRecipe(untracked_recipe;terms=[
-        Interaction(:drive,coefficient*untracked_recipe.inputs.q.operators.x;parameters=Dict(coefficient=>0.0))],
+        Interaction(:drive,coefficient*untracked_recipe.inputs.q.operators.x)],
         controls=working.controls))
     untracked_problem = CalibrationProblem(untracked,["drive/amplitude"],Matrix{ComplexF64}(I,2,2))
     @test CalibrationResult(untracked_problem,fake).state_keys === nothing

@@ -40,3 +40,19 @@ function Base.propertynames(operators::InputOperators, private::Bool = false)
     return Tuple(binding.operator_names[owner])
 end
 
+
+# Overrides and resolved scalar maps remain explicit; inventories are read snapshots.
+function Base.getproperty(recipe::Recipe, name::Symbol)
+    name === :parameters && return recipe_parameter_view(recipe)
+    name === :variables && return recipe_variables(recipe)
+    name === :overrides && return getfield(recipe,:parameters)
+    return getfield(recipe,name)
+end
+function Base.getproperty(recipe::ResolvedRecipe, name::Symbol)
+    name === :parameters && return recipe_parameter_view(recipe;source=:model)
+    name === :variables && return recipe_variables(recipe)
+    name === :resolved_parameters && return getfield(recipe,:parameters)
+    return getfield(recipe,name)
+end
+Base.propertynames(recipe::Recipe, private::Bool=false) = (fieldnames(typeof(recipe))..., :variables, :overrides)
+Base.propertynames(recipe::ResolvedRecipe, private::Bool=false) = (fieldnames(typeof(recipe))..., :variables, :resolved_parameters)

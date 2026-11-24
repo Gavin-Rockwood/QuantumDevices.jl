@@ -22,6 +22,7 @@ function make_flux_tunable_transmon(
     metadata = (;),
     subscript = missing,
 )
+    dimension = charge_basis_dimension(dimension)
     variables, parameters = component_parameters(name; subscript, EC, EJmax, d, ng, flux)
     effective_EJ =
         variables["EJmax"] * sqrt(
@@ -32,8 +33,8 @@ function make_flux_tunable_transmon(
         4 * variables["EC"] * (op(name, :charge) - variables["ng"]) ^ 2 -
         effective_EJ * op(name, :jump) / 2
     operators, operator_generators = component_operators(name,
-        charge_basis_generators(name, dimension))
-    return Component(name; variables, parameters, operators, operator_generators, hamiltonian,
+        Dict{String,Function}("charge" => charge_operator, "jump" => jump_operator))
+    return Component(name; variables, parameters, operators, operator_generators, hamiltonian, dimension,
         type="flux-tunable transmon", label=ismissing(label) ? string(name) : label, metadata)
 end
 

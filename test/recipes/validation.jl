@@ -19,7 +19,7 @@
     QD=QuantumDevices
     binding=recipe.inputs.q
     badbinding=QD.InputBinding(:other,binding.recipe,binding.owners,recipe.scope,binding.operator_names)
-    malformed=QD.CompositeRecipe(recipe.components,(q=badbinding,),recipe.states,recipe.parameters,
+    malformed=QD.CompositeRecipe(recipe.components,(q=badbinding,),recipe.states,recipe.overrides,
         Interaction[],1000,recipe.scope,true,(;))
     @test_throws ArgumentError QD.snapshot_recipe(d,malformed)
     for bad in (
@@ -51,14 +51,13 @@ end
     d=QuantumDevice(:generator_boundary)
     q=add_component!(d,make_qubit(:q))
     calls=Ref(0)
-    invalid=Leaf(component=:q,generators=Dict(OperatorRef(:q,:x)=>OperatorGenerator(
-        (n;kwargs...)->(calls[]+=1;ones(n,n)),2)))
+    invalid=Leaf(component=:q,generators=Dict(OperatorRef(:q,:x)=>(n->(calls[]+=1;ones(n,n)))))
     @test QuantumDevices.snapshot_recipe(d,invalid) isa Leaf
     @test get_hamiltonian(d,invalid) isa Sym
     @test calls[]==0
     @test_throws ArgumentError build(d,invalid)
     @test calls[]>0
-    badname=Leaf(component=:q,generators=Dict(OperatorRef(:q,:unknown)=>OperatorGenerator(n->QT.qeye(n),2)))
+    badname=Leaf(component=:q,generators=Dict(OperatorRef(:q,:unknown)=>(n->QT.qeye(n))))
     @test_throws ArgumentError QuantumDevices.snapshot_recipe(d,badname)
     @test_throws ArgumentError build(d,Leaf(component=:q,dimension=0))
     labels=Recipe(Recipe(d,[q]);states=[(4,)])
@@ -85,9 +84,8 @@ end
     error=try build(d,gate);nothing catch err;err end
     @test error isa ArgumentError
     @test occursin("gate_needs_p",sprint(showerror,error))
-    add_parameters!(d,Dict(p=>0.))
     mixed=GateRecipe(endpoint;terms=[Interaction(:left_p,p*a.operators["x"]),
         Interaction(:right_p,p*b.operators["x"])],duration=1.)
     @test_throws ArgumentError build(d,mixed)
-    @test build(d,mixed;parameters=Dict(p=>.3)).parameters[p] == .3
+    @test build(d,mixed;parameters=Dict(p=>.3)).resolved_parameters[p] == .3
 end

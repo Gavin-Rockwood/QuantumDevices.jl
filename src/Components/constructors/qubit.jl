@@ -1,3 +1,12 @@
+function pauli_dimension(dimension)
+    validate_operator_dimension(dimension) == 2 || throw(ArgumentError("Pauli basis needs dimension 2"))
+    return 2
+end
+pauli_x_operator(dimension) = (pauli_dimension(dimension); sigmax())
+pauli_y_operator(dimension) = (pauli_dimension(dimension); sigmay())
+pauli_z_operator(dimension) = (pauli_dimension(dimension); sigmaz())
+merge!(BUILTIN_OPERATOR_FUNCTIONS, Dict{String,Function}("pauli_x" => pauli_x_operator, "pauli_y" => pauli_y_operator, "pauli_z" => pauli_z_operator))
+
 """
     make_qubit(name::Symbol, frequency; label=missing, metadata=(;), subscript=missing)
     make_qubit(name::Symbol; frequency=5.0, kwargs...)
@@ -8,17 +17,10 @@ Construct a Pauli qubit with `frequency * z / 2`; `subscript` selects its variab
 function make_qubit(name::Symbol, frequency; label = missing, metadata = (;), subscript = missing)
     variables, parameters = component_parameters(name; subscript, ν=frequency)
     ν = variables["ν"]
-    paulis = Dict(:x => sigmax, :y => sigmay, :z => sigmaz)
-    generators = Dict(
-        string(local_name) => OperatorGenerator(
-            BuiltinGenerator(Symbol("pauli_",local_name)),
-            2,
-        ) for (local_name, matrix) in paulis
-    )
     operators, operator_generators = component_operators(name,
-        generators)
+        Dict{String,Function}("x" => pauli_x_operator, "y" => pauli_y_operator, "z" => pauli_z_operator))
     return Component(name; variables, parameters, operators, operator_generators,
-        hamiltonian=0.5 * ν * op(name, :z), type="qubit",
+        dimension=2, hamiltonian=0.5 * ν * op(name, :z), type="qubit",
         label=ismissing(label) ? string(name) : label, metadata)
 end
 

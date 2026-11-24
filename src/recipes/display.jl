@@ -7,9 +7,7 @@ function Base.show(io::IO, recipe::Leaf)
         ", dimension=",
         recipe.dimension,
         ", parameters=",
-        recipe.parameters,
-        ", kwargs=",
-        recipe.kwargs,
+        recipe.overrides,
         ", generator overrides=",
         length(recipe.generators),
         ", control maps=", collect(keys(recipe.control_maps)),
@@ -23,7 +21,7 @@ function Base.show(io::IO, recipe::ResolvedRecipe)
     return print(
         io,
         ", resolved parameters=",
-        recipe.parameters,
+        recipe.resolved_parameters,
         ", inputs=",
         first.(recipe.inputs),
         ")",
@@ -38,7 +36,7 @@ function Base.show(io::IO, recipe::Combine)
         ", interactions=",
         recipe.interactions,
         ", parameters=",
-        recipe.parameters,
+        recipe.overrides,
         ", control maps=", collect(keys(recipe.control_maps)),
         ")",
     )
@@ -125,7 +123,7 @@ function Base.show(io::IO, ::MIME"text/plain", recipe::Recipe)
         )
     end
     push!(lines, "  control maps: " * list_summary(io,keys(recipe.control_maps)))
-    push!(lines, "  declared parameter overrides: " * parameter_values(recipe.parameters))
+    push!(lines, "  declared parameter overrides: " * parameter_values(recipe.overrides))
     return summary_lines(io, recipe, lines)
 end
 
@@ -136,7 +134,7 @@ function Base.show(io::IO, ::MIME"text/plain", recipe::ResolvedRecipe)
         recipe,
         [
             "ResolvedRecipe · components: " * coverage_description(recipe.definition),
-            "  resolved build values: " * parameter_values(recipe.parameters),
+            "  resolved build values: " * parameter_values(recipe.resolved_parameters),
             "  immediate input aliases: " * list_summary(io, first.(recipe.inputs); ordered = true),
             "  inspect .definition for declared overrides or graph(recipe) for upstream inputs",
         ],

@@ -90,9 +90,8 @@ transmon_with_N = Component(transmon.name; variables=transmon.variables,
     parameters=transmon.parameters,
     operators=merge(transmon.operators,Dict("N"=>op(transmon.name,:N))),
     operator_generators=merge(transmon.operator_generators,Dict("N"=>
-        OperatorGenerator((dimension;kwargs...)->num(dimension),
-            transmon.operator_generators["charge"].default_dimension))),
-    hamiltonian=transmon.hamiltonian, type=transmon.type,
+        dimension -> num(dimension))),
+    hamiltonian=transmon.hamiltonian, dimension=transmon.dimension, type=transmon.type,
     label=transmon.label, metadata=transmon.metadata)
 shift_trial = make_model([transmon_with_N, baseline.components[2]],
     baseline.interactions + (:chi)*op(:t_N),
