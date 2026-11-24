@@ -8,7 +8,7 @@ function add_component!(device, component)
         operators=component.operators, operator_generators=component.operator_generators,
         hamiltonian=component.hamiltonian, dimension=component.dimension, type=component.type, label=component.label,
         metadata=component.metadata)
-    validate_component_input_defaults(merge(device.components,Dict(component.name=>component)))
+    validate_device_defaults(merge(device.components,Dict(component.name=>component)),device.interactions)
     physical = [physical_operator(operator) for operator in values(component.operators)]
     for ref in physical
         haskey(device.operators.by_operator,ref) &&
@@ -34,11 +34,12 @@ function add_interaction!(device, interaction)
     validate_interaction_inputs(interaction)
     all(ref -> ref isa OperatorRef, refs(interaction.expression,:op)) ||
         throw(ArgumentError("device interactions require physical component operator references"))
+    validate_device_defaults(device.components,merge(device.interactions,Dict(name=>interaction)))
     owners = Tuple(get_components(interaction,device))
     # Membership depends only on the immutable symbolic expression. Capture declaration
-    # variables as well; numerical inputs belong to recipes.
+    # variables and numerical declaration defaults as well.
     captured = Interaction(interaction.name, interaction.expression,
-        RecipeMap(interaction.variables), interaction.metadata)
+        RecipeMap(interaction.variables), Dict{Num,Union{Missing,Number}}(interaction.defaults), interaction.metadata)
     device.interactions[name] = captured
     getfield(device.interaction_components,:entries)[name] = owners
     for owner in owners
@@ -101,4 +102,32 @@ function validate_default_sources(groups)
         end
     end
     return nothing
+end
+
+# Numerical defaults are derived from declarations, independently of recipe usage.
+function validate_device_defaults(components,interactions)
+    groups = Any[("component $(c.name)",component_parameter_values(c)) for c in values(components)]
+    for term in values(interactions)
+        validate_interaction_inputs(term)
+        push!(groups,("interaction $(term.name)",Dict(v=>x for (v,x) in term.defaults if !ismissing(x))))
+    end
+    validate_default_sources(groups)
+    return nothing
+end
+function device_defaults(device)
+    validate_device_defaults(device.components,device.interactions)
+    result = Dict{String,Union{Missing,Number}}()
+    for component in values(device.components)
+        idle = component_parameter_values(component)
+        for variable in values(component.variables)
+            name = string(variable)
+            value = get(idle,variable,missing)
+            (!haskey(result,name) || ismissing(result[name])) && (result[name]=value)
+        end
+    end
+    for term in values(device.interactions), (variable,value) in term.defaults
+        name = string(variable)
+        (!haskey(result,name) || ismissing(result[name])) && (result[name]=value)
+    end
+    return result
 end

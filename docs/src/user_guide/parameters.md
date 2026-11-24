@@ -79,9 +79,27 @@ historical snapshots contribute usages independently. Captured historical values
 are authoritative for those snapshots. Both views are independent read snapshots:
 editing their dictionaries or location vectors does not change the device.
 
-Component idle defaults remain on components. Interactions declare expressions
-and symbols; supply their values in recipe parameters or build overrides. To
+Component idle defaults remain on components. Interactions declare expressions,
+symbols, and optional defaults. Recipe parameters and build overrides select
+operating values. To
 change a saved definition, edit a draft and register or replace it deliberately.
 For a gate-only scalar, put its value in the gate's embedded model recipe draft,
 leaving the registered base model unchanged. A missing static reference value
 remains missing even if a control replaces that coefficient at runtime.
+
+
+Interaction declarations may provide numerical defaults directly:
+
+```julia
+coupling = Interaction(:coupling, g * q1.operators["x"] * q2.operators["x"], Dict(g => 0.02))
+add_interaction!(device, coupling)
+device.defaults[string(g)] # 0.02
+```
+
+`device.defaults` combines registered component idle values and interaction defaults,
+indexed by full symbolic names. Unassigned inputs appear as `missing`; conflicting
+concrete declarations for the same symbol are rejected. This read snapshot is
+separate from `device.parameters`, which groups recipe usages by resolved value.
+Recipes capture interaction defaults when constructed, so later declaration edits
+do not change existing recipes. Recipe overrides and explicit build parameters
+take precedence over these captured defaults.

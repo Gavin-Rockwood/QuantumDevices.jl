@@ -8,7 +8,7 @@ import JLD2
     interaction=Interaction(:coupling,x*q.operators["z"])
     @test isequal(interaction.variables,Dict("x"=>x))
     @test !hasproperty(interaction,:parameters)
-    @test_throws ArgumentError Interaction(:removed,x;parameters=Dict(x=>2.))
+    @test Interaction(:declared,x;parameters=Dict(x=>2.)).defaults[x] == 2.
     @test !isdefined(QuantumDevices,:add_parameters!)
     @test !hasproperty(d,:explicit_parameters)
     add_interaction!(d,interaction)
@@ -152,4 +152,38 @@ end
     add_interaction!(device,Interaction(:integer_collision,integer_variable*right.operators["z"]))
     @test_throws ArgumentError device.variables
     @test_throws ArgumentError device.parameters
+end
+
+
+@testset "captured interaction declaration defaults" begin
+    @variables coupling unassigned
+    device = QuantumDevice(:declaration_defaults)
+    q = add_component!(device,make_qubit(:q;frequency=2.))
+    source = Interaction(:coupling,(coupling+unassigned)*q.operators["z"],Dict(coupling=>0.2))
+    registered = add_interaction!(device,source)
+    @test device.defaults["coupling"] == 0.2
+    @test ismissing(device.defaults["unassigned"])
+    @test all(haskey(device.defaults,string(v)) for v in values(q.variables))
+    @test isempty(device.parameters["coupling"])
+    @test_throws ArgumentError Interaction(:invalid,coupling,Dict(unassigned=>1.))
+    @test_throws ArgumentError Interaction(:invalid,coupling,Dict(coupling=>Inf))
+    @test_throws ArgumentError add_interaction!(device,Interaction(:conflict,coupling*q.operators["z"],Dict(coupling=>0.4)))
+    @test !haskey(device.interactions,:conflict)
+    recipe = Recipe(device,[q];interactions=[registered],parameters=Dict(unassigned=>0.))
+    registered.defaults[coupling] = 0.8
+    source.defaults[coupling] = 0.9
+    @test device.defaults["coupling"] == 0.8
+    @test build(device,recipe).resolved_parameters[coupling] == 0.2
+    recipe.overrides[coupling] = 0.3
+    @test build(device,recipe).resolved_parameters[coupling] == 0.3
+    @test build(device,recipe;parameters=Dict(coupling=>0.4)).resolved_parameters[coupling] == 0.4
+    add_recipe!(device,:captured,recipe)
+    mktempdir() do directory
+        path = joinpath(directory,"defaults.qdevice")
+        save_device(path,device)
+        loaded = load_device(path)
+        @test loaded.defaults == device.defaults
+        @test only(loaded.recipes[:captured].interactions).defaults[coupling] == 0.2
+        @test build(loaded,:captured).resolved_parameters[coupling] == 0.3
+    end
 end

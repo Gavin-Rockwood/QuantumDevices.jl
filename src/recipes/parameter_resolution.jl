@@ -107,7 +107,7 @@ function reconcile_gate_parameters(recipe,reference,terms,expressions,overrides,
                 all(v->isequal(v,first(candidates)),candidates) || throw(ArgumentError("conflicting scoped assignments for gate parameter $variable at $path"))
                 first(candidates)
             else
-                Base.missing
+                get(term.defaults,variable,Base.missing)
             end
             ismissing(value) && push!(get!(missing_sites,variable,Tuple[]),(path...,:gate_term,term.name))
             if haskey(resolved,variable) && !ismissing(resolved[variable]) && !ismissing(value) && !isequal(resolved[variable],value)
@@ -162,7 +162,7 @@ function resolve_recipe_inputs(recipe, components; overrides=Dict(), extra_terms
                         merge_input_values!(current,origins,visit(input.recipe,inherited,child_path),child_path)
                     end
                     for term in source.interactions, variable in values(term.variables)
-                        value = get(inherited,variable,get(current,variable,Base.missing))
+                        value = get(inherited,variable,get(current,variable,get(term.defaults,variable,Base.missing)))
                         merge_input_values!(current,origins,Dict(variable=>value),current_path)
                         ismissing(value) && push!(get!(missing_sites,variable,Tuple[]),(current_path...,:interaction,term.name))
                     end
@@ -217,6 +217,10 @@ function validate_recipe_input_defaults(recipe,components;recipes=Dict())
             defaults = leaf_input_defaults(source,components)
             push!(sources,("leaf $path",Dict(v=>value for (v,value) in defaults if !ismissing(value))))
         else
+            for term in source.interactions
+                validate_interaction_inputs(term)
+                push!(sources,("interaction $(term.name) at $path",Dict(v=>x for (v,x) in term.defaults if !ismissing(x))))
+            end
             for input in recipe_inputs(source)
                 visit(input.recipe,(path...,input.name))
             end

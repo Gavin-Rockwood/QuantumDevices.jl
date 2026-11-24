@@ -35,7 +35,9 @@ function Base.show(io::IO, ::MIME"text/plain", device::QuantumDevice)
 end
 
 function Base.getproperty(device::QuantumDevice, name::Symbol)
-    if name === :parameters
+    if name === :defaults
+        return device_defaults(device)
+    elseif name === :parameters
         return device_parameter_view(device)
     elseif name === :variables
         return device_variables(device)
@@ -43,4 +45,4 @@ function Base.getproperty(device::QuantumDevice, name::Symbol)
     return getfield(device,name)
 end
 
-Base.propertynames(::QuantumDevice, private::Bool=false) = (fieldnames(QuantumDevice)..., :variables, :parameters)
+Base.propertynames(::QuantumDevice, private::Bool=false) = (fieldnames(QuantumDevice)..., :variables, :parameters, :defaults)

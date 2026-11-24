@@ -18,7 +18,8 @@ function copy_interaction(interaction::Interaction, frozen; old_scope = nothing,
     end
     variables = frozen ? RecipeMap(interaction.variables) : Dict{String, Num}(interaction.variables)
     expression = copy_expression(interaction.expression, old_scope, new_scope)
-    return Interaction(interaction.name, expression, variables, metadata)
+    defaults = frozen ? RecipeMap(interaction.defaults) : Dict{Num,Union{Missing,Number}}(interaction.defaults)
+    return Interaction(interaction.name, expression, variables, defaults, metadata)
 end
 
 # Frozen storage is a provenance property, not proof of device compatibility.
