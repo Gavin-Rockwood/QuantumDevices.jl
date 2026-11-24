@@ -187,3 +187,18 @@ end
         @test build(loaded,:captured).resolved_parameters[coupling] == 0.3
     end
 end
+
+
+@testset "structural interaction default membership" begin
+    @variables first_input second_input unknown_input
+    expression = first_input + second_input
+    # Supply every key: one necessarily differs from the first value encountered
+    # in the constructor's variable dictionary. Symbolic == is not a Bool.
+    interaction = Interaction(:multiple,expression,
+        Dict(first_input=>0.1,second_input=>0.2))
+    @test interaction.defaults[first_input] == 0.1
+    @test interaction.defaults[second_input] == 0.2
+    QuantumDevices.validate_interaction_inputs(interaction)
+    @test_throws ArgumentError Interaction(:unknown,expression,
+        Dict(first_input=>0.1,unknown_input=>0.3))
+end

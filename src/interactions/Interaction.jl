@@ -11,7 +11,7 @@ function Interaction(name, expression; metadata=(;), parameters=Dict(), defaults
     expression = asym(expression)
     variables = Dict{String,Num}(string(v)=>v for v in refs(expression,:param))
     all(is_parameter,values(variables)) || throw(ArgumentError("interaction inputs must be atomic Symbolics variables"))
-    all(v -> v in values(variables),keys(defaults)) || throw(ArgumentError("interaction defaults refer to unknown variables"))
+    all(v -> any(isequal(v),values(variables)),keys(defaults)) || throw(ArgumentError("interaction defaults refer to unknown variables"))
     declared = Dict{Num,Union{Missing,Number}}(v=>get(defaults,v,missing) for v in values(variables))
     all(x->ismissing(x) || concrete_parameter_value(x),values(declared)) ||
         throw(ArgumentError("interaction defaults must be finite concrete numbers or missing"))
