@@ -49,7 +49,7 @@ function Base.getproperty(recipe::Recipe, name::Symbol)
     return getfield(recipe,name)
 end
 function Base.getproperty(recipe::ResolvedRecipe, name::Symbol)
-    name === :parameters && return recipe_parameter_view(recipe;source=:model)
+    name === :parameters && return recipe_parameter_view(recipe)
     name === :variables && return recipe_variables(recipe)
     name === :resolved_parameters && return getfield(recipe,:parameters)
     return getfield(recipe,name)

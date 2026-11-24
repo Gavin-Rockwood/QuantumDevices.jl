@@ -2,7 +2,7 @@ function Base.getproperty(model::NumericalModel, name::Symbol)
     if name == :control_maps
         return getfield(model,:recipe).definition.control_maps
     elseif name == :parameters
-        return recipe_parameter_view(getfield(model,:recipe);source=:model)
+        return recipe_parameter_view(getfield(model,:recipe))
     elseif name == :variables
         return recipe_variables(getfield(model,:recipe))
     elseif name == :resolved_parameters

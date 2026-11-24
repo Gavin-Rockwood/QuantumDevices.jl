@@ -216,14 +216,11 @@ function recipe_variables(recipe)
     end
     return variables
 end
-function recipe_parameter_view(recipe;source=:recipe)
+function recipe_parameter_view(recipe)
     variables = recipe_variables(recipe)
-    inventory = Dict(name=>Dict{Union{Missing,Number},Vector{NamedTuple}}() for name in keys(variables))
     resolution = resolve_recipe_inputs(recipe,Dict())
-    for entry in resolution.nodes
-        append_input_locations!(inventory,entry.values,(;source,path=(),node=entry.path))
-    end
-    return inventory
+    return Dict{String,Union{Missing,Number}}(
+        name=>resolution.values[variable] for (name,variable) in variables)
 end
 
 function validate_recipe_input_defaults(recipe,components;recipes=Dict())

@@ -182,7 +182,7 @@ end
         path = joinpath(directory,"defaults.qdevice")
         save_device(path,device)
         loaded = load_device(path)
-        @test loaded.defaults == device.defaults
+        @test isequal(loaded.defaults,device.defaults)
         @test only(loaded.recipes[:captured].interactions).defaults[coupling] == 0.2
         @test build(loaded,:captured).resolved_parameters[coupling] == 0.3
     end

@@ -9,7 +9,7 @@
     save_device(folder,d)
     restored=load_device(folder)
     @test restored.components[:q].parameters["ν"]==9.
-    @test haskey(restored.recipes[:base].parameters[string(ν)],5.)
+    @test restored.recipes[:base].parameters[string(ν)]==5.
     @test build(restored,:base).resolved_parameters[ν]==5.
 
     # Verified old records lack the leaf field. Reused recipe IDs are bound
@@ -34,7 +34,7 @@
     reader=QD.RecordReader(records,writer.arrays,Dict(),Set(),Dict(),Dict())
     live=QD._decode_record(definition,reader,"device")
     history=QD._decode_record(gates["history"],reader,"history")
-    @test haskey(live.recipes[:base].parameters[string(ν)],9.)
-    @test haskey(history.recipe.parameters[string(ν)],5.)
+    @test live.recipes[:base].parameters[string(ν)]==9.
+    @test history.recipe.parameters[string(ν)]==5.
     @test isequal(live.recipes[:base].variables,history.recipe.variables)
 end
