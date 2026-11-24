@@ -13,10 +13,10 @@ Leaf(component,dimension,generators,parameters) = Leaf(component,dimension,gener
 Leaf(component,dimension,generators,parameters,control_maps) = Leaf(component,dimension,generators,parameters,control_maps,nothing)
 
 # Only scalar input declarations are captured; physical operators remain contextual.
-function capture_leaf_inputs(component)
-    defaults = component_parameter_values(component)
+function capture_leaf_inputs(component; defaults=nothing)
+    idle = component_parameter_values(component)
     return RecipeMap(Dict{Num,Union{Missing,Number}}(
-        variable => get(defaults,variable,missing) for variable in values(component.variables)))
+        variable => get(idle,variable,isnothing(defaults) ? missing : get(defaults,string(variable),missing)) for variable in values(component.variables)))
 end
 function leaf_input_defaults(leaf::Leaf, components=Dict())
     captured = getfield(leaf,:input_defaults)

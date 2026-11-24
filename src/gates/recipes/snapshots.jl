@@ -8,7 +8,7 @@ function capture_gate(device,gate::GateRecipe;frozen=true,components=Dict{Symbol
     operators = captured.operators
     old_scope = source isa CompositeRecipe ? source.scope : nothing
     new_scope = model isa CompositeRecipe ? model.scope : nothing
-    extra = [copy_interaction(term,frozen;old_scope,new_scope) for term in gate.terms]
+    extra = [copy_interaction(term,frozen;old_scope,new_scope,device) for term in gate.terms]
     for term in extra
         capture_operator_refs(term,model,owners,operators,["target","gate $(term.name)"];local_scope=false)
     end

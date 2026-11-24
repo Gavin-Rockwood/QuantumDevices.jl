@@ -92,6 +92,11 @@ end
 # Gate-added inputs share the model's reference value; controls replace it only at runtime.
 function reconcile_gate_parameters(recipe,reference,terms,expressions,overrides,missing_sites; path=(), captured=nothing,recipes=Dict())
     resolved = Dict{Num,Union{Missing,Number}}(reference)
+    defaults = Dict{Num,Union{Missing,Number}}()
+    origins = Dict{Num,Tuple}()
+    for term in terms
+        merge_input_values!(defaults,origins,term.defaults,(path...,:gate_term,term.name))
+    end
     for (term,expression) in zip(terms,expressions)
         variables = Set{Num}(values(term.variables))
         owners = Set(ref.owner for ref in refs(expression,:op))
@@ -107,7 +112,7 @@ function reconcile_gate_parameters(recipe,reference,terms,expressions,overrides,
                 all(v->isequal(v,first(candidates)),candidates) || throw(ArgumentError("conflicting scoped assignments for gate parameter $variable at $path"))
                 first(candidates)
             else
-                get(term.defaults,variable,Base.missing)
+                get(defaults,variable,Base.missing)
             end
             ismissing(value) && push!(get!(missing_sites,variable,Tuple[]),(path...,:gate_term,term.name))
             if haskey(resolved,variable) && !ismissing(resolved[variable]) && !ismissing(value) && !isequal(resolved[variable],value)
@@ -161,10 +166,23 @@ function resolve_recipe_inputs(recipe, components; overrides=Dict(), extra_terms
                         child_path = (current_path...,input.name)
                         merge_input_values!(current,origins,visit(input.recipe,inherited,child_path),child_path)
                     end
-                    for term in source.interactions, variable in values(term.variables)
-                        value = get(inherited,variable,get(current,variable,get(term.defaults,variable,Base.missing)))
+                    # Collect the whole node's declarations before resolving any
+                    # interaction use: an earlier missing declaration cannot hide
+                    # a later concrete default for the same physical symbol.
+                    defaults = Dict{Num,Union{Missing,Number}}()
+                    default_origins = Dict{Num,Tuple}()
+                    for term in source.interactions
+                        merge_input_values!(defaults,default_origins,term.defaults,
+                            (current_path...,:interaction,term.name))
+                    end
+                    for variable in keys(defaults)
+                        child_value = get(current,variable,Base.missing)
+                        fallback = ismissing(child_value) ? defaults[variable] : child_value
+                        value = get(inherited,variable,fallback)
                         merge_input_values!(current,origins,Dict(variable=>value),current_path)
-                        ismissing(value) && push!(get!(missing_sites,variable,Tuple[]),(current_path...,:interaction,term.name))
+                    end
+                    for term in source.interactions, variable in values(term.variables)
+                        ismissing(current[variable]) && push!(get!(missing_sites,variable,Tuple[]),(current_path...,:interaction,term.name))
                     end
                 end
             end

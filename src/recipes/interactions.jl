@@ -68,7 +68,7 @@ function attach_interactions!(device, recipe, interactions)
     end
     for interaction in selected
         interaction isa Interaction || throw(ArgumentError("interactions must contain Interaction objects"))
-        captured = copy_interaction(interaction, false)
+        captured = copy_interaction(interaction, false; device)
         expression = bind_interaction_expression(captured.expression, recipe)
         add_interaction!(recipe, Interaction(captured.name, expression, captured.variables, captured.defaults, captured.metadata))
     end

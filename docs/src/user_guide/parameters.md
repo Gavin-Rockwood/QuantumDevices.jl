@@ -100,6 +100,7 @@ device.defaults[string(g)] # 0.02
 indexed by full symbolic names. Unassigned inputs appear as `missing`; conflicting
 concrete declarations for the same symbol are rejected. This read snapshot is
 separate from `device.parameters`, which groups recipe usages by resolved value.
-Recipes capture interaction defaults when constructed, so later declaration edits
+Recipes look up each symbolic input by its full name in `device.defaults` and
+capture the available interaction defaults when constructed, so later declaration edits
 do not change existing recipes. Recipe overrides and explicit build parameters
 take precedence over these captured defaults.

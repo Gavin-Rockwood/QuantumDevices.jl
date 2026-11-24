@@ -158,7 +158,7 @@ function CompositeRecipe(
             bindings,
             InputBinding(
                 name,
-                Leaf(component = name, dimension = get(dimensions, name, nothing), input_defaults=capture_leaf_inputs(component)),
+                Leaf(component = name, dimension = get(dimensions, name, nothing), input_defaults=capture_leaf_inputs(component; defaults=device.defaults)),
                 [name],
                 scope,
                 operators,

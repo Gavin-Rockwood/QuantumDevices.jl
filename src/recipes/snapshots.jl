@@ -11,14 +11,26 @@ function copy_expression(expression::Sym, old_scope, new_scope)
 end
 
 # Snapshot collections are frozen; editable drafts thaw the same captured values.
-function copy_interaction(interaction::Interaction, frozen; old_scope = nothing, new_scope = nothing)
+function copy_interaction(interaction::Interaction, frozen; old_scope = nothing, new_scope = nothing, device = nothing)
     metadata = freeze_recipe_value(interaction.metadata)
     if !frozen
         metadata = thaw_recipe_value(metadata)
     end
     variables = frozen ? RecipeMap(interaction.variables) : Dict{String, Num}(interaction.variables)
     expression = copy_expression(interaction.expression, old_scope, new_scope)
-    defaults = frozen ? RecipeMap(interaction.defaults) : Dict{Num,Union{Missing,Number}}(interaction.defaults)
+    # RecipeMap marks defaults captured at the first device-aware boundary.
+    # Preserve that marker in editable drafts as well as frozen snapshots.
+    defaults = interaction.defaults
+    if !(defaults isa RecipeMap) && !isnothing(device)
+        registry = device.defaults
+        defaults = RecipeMap(Dict{Num,Union{Missing,Number}}(
+            v => (ismissing(value) ? get(registry,string(v),missing) : value)
+            for (v,value) in defaults))
+    elseif frozen || defaults isa RecipeMap
+        defaults = RecipeMap(defaults)
+    else
+        defaults = Dict{Num,Union{Missing,Number}}(defaults)
+    end
     return Interaction(interaction.name, expression, variables, defaults, metadata)
 end
 
@@ -119,7 +131,7 @@ function capture_recipe_tree(device, source, frozen, active, path, components)
         captured = Leaf(definition.component, definition.dimension,
                         frozen ? RecipeMap(generators) : generators, parameters,
                         _copy_recipe_maps(device,definition.control_maps,[definition.component],frozen),
-                        isnothing(definition.input_defaults) ? (isnothing(device) ? nothing : capture_leaf_inputs(components[definition.component])) : definition.input_defaults)
+                        isnothing(definition.input_defaults) ? (isnothing(device) ? nothing : capture_leaf_inputs(components[definition.component]; defaults=device.defaults)) : definition.input_defaults)
         return (; recipe = captured, owners = [definition.component], operators, provenance = Set{Any}())
     end
     definition isa Union{CompositeRecipe, Combine} ||
@@ -202,7 +214,7 @@ function capture_recipe_tree(device, source, frozen, active, path, components)
         push!(provenance, origin)
         capture_operator_refs(interaction, definition, owners, operators, path; local_scope = true)
         push!(interactions, copy_interaction(interaction, frozen;
-            old_scope = composite ? definition.scope : nothing, new_scope = scope))
+            old_scope = composite ? definition.scope : nothing, new_scope = scope, device))
     end
     if composite
         captured = CompositeRecipe(

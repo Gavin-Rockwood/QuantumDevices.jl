@@ -202,3 +202,55 @@ end
     @test_throws ArgumentError Interaction(:unknown,expression,
         Dict(first_input=>0.1,unknown_input=>0.3))
 end
+
+
+@testset "shared interaction defaults resolve independently of order" begin
+    @variables shared_coupling truly_missing
+    device = QuantumDevice(:shared_defaults)
+    q = add_component!(device,make_qubit(:q;frequency=2.))
+    unassigned = Interaction(:q1_q2,shared_coupling*q.operators["z"])
+    assigned = Interaction(:q2_c,shared_coupling*q.operators["z"],Dict(shared_coupling=>0.2))
+    for terms in ([unassigned,assigned],[assigned,unassigned])
+        recipe = Recipe(device,[q];interactions=terms)
+        resolution = QuantumDevices.resolve_recipe_inputs(recipe,device.components)
+        @test isempty(resolution.missing)
+        @test resolution.values[shared_coupling] == 0.2
+        @test build(device,recipe).resolved_parameters[shared_coupling] == 0.2
+        @test build(device,recipe;parameters=Dict(shared_coupling=>0.4)).resolved_parameters[shared_coupling] == 0.4
+    end
+    conflict = Interaction(:conflict,shared_coupling*q.operators["z"],Dict(shared_coupling=>0.3))
+    @test_throws ArgumentError build(device,Recipe(device,[q];interactions=[assigned,conflict]))
+    missing_term = Interaction(:missing,truly_missing*q.operators["z"])
+    missing_recipe = Recipe(device,[q];interactions=[missing_term])
+    @test haskey(QuantumDevices.resolve_recipe_inputs(missing_recipe,device.components).missing,truly_missing)
+    @test_throws ArgumentError build(device,missing_recipe)
+end
+
+
+@testset "device defaults captured through full symbolic names" begin
+    @variables registry_input captured_missing
+    device = QuantumDevice(:registry_capture)
+    q = add_component!(device,make_qubit(:q;frequency=2.))
+    declaration = add_interaction!(device,Interaction(:declaration,
+        registry_input*q.operators["z"],Dict(registry_input=>0.25)))
+    use = Interaction(:use,registry_input*q.operators["z"])
+    recipe = Recipe(device,[q];interactions=[use])
+    @test only(recipe.interactions).defaults[registry_input] == device.defaults[string(registry_input)]
+    declaration.defaults[registry_input] = 0.75
+    @test build(device,recipe).resolved_parameters[registry_input] == 0.25
+    @test build(device,draft(recipe)).resolved_parameters[registry_input] == 0.25
+    @test build(device,recipe;parameters=Dict(registry_input=>0.5)).resolved_parameters[registry_input] == 0.5
+    missing_recipe = Recipe(device,[q];interactions=[Interaction(:missing,captured_missing*q.operators["z"])])
+    add_interaction!(device,Interaction(:later,captured_missing*q.operators["z"],Dict(captured_missing=>0.1)))
+    @test ismissing(only(draft(missing_recipe).interactions).defaults[captured_missing])
+    @test_throws ArgumentError build(device,missing_recipe)
+    # Gate-added terms share defaults before either term records missing uses.
+    gate_terms = [Interaction(:first,registry_input),Interaction(:second,registry_input,Dict(registry_input=>0.6))]
+    for terms in (gate_terms,reverse(gate_terms))
+        sites = Dict{Num,Vector{Tuple}}()
+        values = QuantumDevices.reconcile_gate_parameters(Leaf(component=:q),Dict(),terms,
+            [term.expression for term in terms],Dict(),sites)
+        @test isempty(sites)
+        @test values[registry_input] == 0.6
+    end
+end
